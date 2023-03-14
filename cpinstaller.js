@@ -23,6 +23,8 @@ import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
 const PREFERRED_BAUDRATE = 921600;
 const COPY_CHUNK_SIZE = 64 * 1024; // 64 KB Chunks
+const DEFAULT_RELEASE_LATEST = false;   // Use the latest release or the stable release if not specified
+const BOARD_DEFS = "https://adafruit-circuit-python.s3.amazonaws.com/esp32_boards.json";
 
 const CSS_DIALOG_CLASS = "cp-installer-dialog";
 const FAMILY_TO_CHIP_MAP = {
@@ -49,7 +51,6 @@ export class CPInstallButton extends InstallButton {
         this.binFileUrl = null;
         this.releaseVersion = 0;
         this.chipFamily = null;
-        this.bootloadId = null;
         this.dialogCssClass = CSS_DIALOG_CLASS;
         this.dialogs = { ...this.dialogs,  ...this.cpDialogs };
         this.bootDriveHandle = null;
@@ -69,17 +70,102 @@ export class CPInstallButton extends InstallButton {
         return Object.keys(attrMap);
     }
 
-    connectedCallback() {
-        this.boardName = this.getAttribute("boardname") || "ESP32-based device";
-        this.menuTitle = `CircuitPython Installer for ${this.boardName}`;
+    parseVersion(version) {
+        const versionRegex = /(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?/;
+        const versionInfo = {};
+        let matches = version.match(versionRegex);
+        if (matches && matches.length >= 4) {
+            versionInfo.major = matches[1];
+            versionInfo.minor = matches[2];
+            versionInfo.patch = matches[3];
+            if (matches[4] && matches[5]) {
+                versionInfo.suffix = matches[4];
+                versionInfo.suffixVersion = matches[5];
+            } else {
+                versionInfo.suffix = "stable";
+                versionInfo.suffixVersion = 0;
+            }
+        }
+        return versionInfo;
+    }
 
-        // If this is empty, it's a problem
+    sortReleases(releases) {
+        // Return a sorted list of releases by parsed version number
+        const sortHieratchy = ["major", "minor", "patch", "suffix", "suffixVersion"];
+        releases.sort((a, b) => {
+            const aVersionInfo = this.parseVersion(a.version);
+            const bVersionInfo = this.parseVersion(b.version);
+            for (let sortKey of sortHieratchy) {
+                if (aVersionInfo[sortKey] < bVersionInfo[sortKey]) {
+                    return -1;
+                } else if (aVersionInfo[sortKey] > bVersionInfo[sortKey]) {
+                    return 1;
+                }
+            }
+            return 0;
+        });
+
+        return releases;
+    }
+
+    async connectedCallback() {
+        // Required
         this.boardId = this.getAttribute("boardid");
-        this.releaseVersion = this.getAttribute("version");
+
+        // If not provided, it will use the stable release if DEFAULT_RELEASE_LATEST is false
+        if (this.getAttribute("version")) {
+            this.releaseVersion = this.getAttribute("version");
+        }
+
+        // Pull in the info from the json as the default values. These can be overwritten by the attributes.
+        const response = await fetch(BOARD_DEFS);
+        const boardDefs = await response.json();
+        let releaseInfo = null;
+
+        if (Object.keys(boardDefs).includes(this.boardId)) {
+            const boardDef = boardDefs[this.boardId];
+            this.chipFamily = boardDef.chipfamily;
+            if (boardDef.name) {
+                this.boardName = boardDef.name;
+            }
+            if (boardDef.bootloader) {
+                this.bootloaderUrl = this.updateBinaryUrl(boardDef.bootloader);
+            }
+            const sortedReleases = this.sortReleases(boardDef.releases);
+
+            if (this.releaseVersion) {  // User specified a release
+                for (let release of sortedReleases) {
+                    if (release.version == this.releaseVersion) {
+                        releaseInfo = release;
+                        break;
+                    }
+                }
+            }
+            if (!releaseInfo) { // Release version not found or not specified
+                if (DEFAULT_RELEASE_LATEST) {
+                    releaseInfo = sortedReleases[sortedReleases.length - 1];
+                } else {
+                    releaseInfo = sortedReleases[0];
+                }
+                this.releaseVersion = releaseInfo.version;
+            }
+            if (releaseInfo.uf2file) {
+                this.uf2FileUrl = this.updateBinaryUrl(releaseInfo.uf2file);
+            }
+            if (releaseInfo.binfile) {
+                this.binFileUrl = this.updateBinaryUrl(releaseInfo.binfile);
+            }
+        }
 
         // Nice to have for now
-        this.chipFamily = this.getAttribute("chipfamily");
-        this.bootloaderId = this.getAttribute("bootloaderid"); // This could be used to check serial output from board matches the UF2 file
+        if (this.getAttribute("chipfamily")) {
+            this.chipFamily = this.getAttribute("chipfamily");
+        }
+
+        if (this.getAttribute("boardname")) {
+            this.boardName = this.getAttribute("boardname");
+        }
+        this.menuTitle = `CircuitPython Installer for ${this.boardName}`;
 
         super.connectedCallback();
     }

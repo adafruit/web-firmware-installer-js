@@ -1,4 +1,4 @@
-name: Jekyll site CI
+name: Build Distribution Files
 
 on:
   push:
@@ -16,8 +16,6 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
-    - name: Create dist Folder
-      run: "mkdir -p dist"
     - name: Remove existing dist files
       run: "rm -f dist/*"
     - name: Copy files to dist folder
@@ -29,7 +27,6 @@ jobs:
         js_engine: 'uglify-js'
     - name: Commit Distribution Files
       uses: stefanzweifel/git-auto-commit-action@v4
-      if: ${{ github.event_name == 'release' }}
       with:
         repository: 'dist'
         commit_message: "Github Action: JS Distribution files"

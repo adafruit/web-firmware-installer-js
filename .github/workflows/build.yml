@@ -16,21 +16,21 @@ jobs:
     - uses: actions/checkout@v3
       with:
         submodules: true
-    - name: Create Build Folder
-      run: "mkdir -p build"
-    - name: Remove existing build files
-      run: "rm -f build/*"
-    - name: Copy files to build folder
-      run: "cp *.{js,py,json} build/"
+    - name: Create dist Folder
+      run: "mkdir -p dist"
+    - name: Remove existing dist files
+      run: "rm -f dist/*"
+    - name: Copy files to dist folder
+      run: "cp *.{js,py,json} dist/"
     - name: Minify JavaScript
       uses: nizarmah/auto-minify@v2.1
       with:
-        directory: 'build'
+        directory: 'dist'
         js_engine: 'uglify-js'
     # Eventually only do this step on release
-    - name: Commit Build Files
+    - name: Commit Distribution Files
       uses: stefanzweifel/git-auto-commit-action@v4
       with:
-        repository: 'build'
-        commit_message: "Github Action: JS Build files"
+        repository: 'dist'
+        commit_message: "Github Action: Updated dist files"
         branch: ${{ github.ref }}

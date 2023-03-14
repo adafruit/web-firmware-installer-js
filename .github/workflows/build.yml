@@ -19,13 +19,22 @@ jobs:
     - name: Create Build Folder
       run: "mkdir -p build"
     - name: Copy files to build folder
-      run: "yes | cp -f *.{js,py,json} build/"
+      run: "yes | cp -f *.{py,json} build/"
+    - name: Remove existing JS Files
+      run: "rm build/*.js"
+    - name: Copy files to build folder
+      run: |
+      for file in *.js; do
+        cp -- "$file" build/"${file%.js}.min.js"
+      done
     - name: Minify JavaScript
       uses: nizarmah/auto-minify@v2.1
       with:
         overwrite: true
         directory: 'build'
         js_engine: 'uglify-js'
+    - name: Copy non-minified JS Files to build folder
+      run: "yes | cp -f *.js build/"
     # Eventually only do this step on release
     - name: Commit Build Files
       uses: stefanzweifel/git-auto-commit-action@v4

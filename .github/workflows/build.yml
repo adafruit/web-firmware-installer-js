@@ -18,10 +18,10 @@ jobs:
         submodules: true
     - name: Create Build Folder
       run: "mkdir -p build"
+    - name: Remove existing build files
+      run: "rm build/*"
     - name: Copy files to build folder
-      run: "yes | cp -f *.{js,py,json} build/"
-    - name: Remove existing minified files
-      run: "rm build/*.min.js"
+      run: "cp *.{js,py,json} build/"
     - name: Minify JavaScript
       uses: nizarmah/auto-minify@v2.1
       with:

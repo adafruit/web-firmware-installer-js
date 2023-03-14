@@ -19,12 +19,11 @@ jobs:
     - name: Create Build Folder
       run: "mkdir -p build"
     - name: Copy files to build folder
-      run: "yes | cp -f *.{mjs,py,json} build/"
+      run: "yes | cp -f *.{js,py,json} build/"
     - name: Minify JavaScript
-      uses: nizarmah/auto-minify@v2.1
+      uses: jossydevers/minify-js@v1.0.0
       with:
         directory: 'build'
-        overwrite: true
     # Eventually only do this step on release
     - name: Commit Build Files
       uses: stefanzweifel/git-auto-commit-action@v4

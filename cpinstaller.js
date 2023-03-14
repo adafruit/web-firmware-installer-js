@@ -10,7 +10,7 @@ import * as esptoolPackage from "https://unpkg.com/esp-web-flasher@5.1.2/dist/we
 
 //import * as esptoolPackage from "https://adafruit.github.io/Adafruit_WebSerial_ESPTool/js/modules/esptool.js"
 import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@1.2.1/repl.js';
-import { InstallButton, ESP_ROM_BAUD } from "./base_installer.mjs";
+import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
 // TODO: Combine multiple steps together. For now it was easier to make them separate,
 // but for ease of configuration, it would be work better to combine them together.

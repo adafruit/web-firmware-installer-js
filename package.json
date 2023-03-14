@@ -5,7 +5,7 @@
   },
   "version": "1.0.0",
   "description": "ESP32 Web-based Firmware Installation Tool for CircuitPython and more",
-  "main": "base_installer.mjs",
+  "main": "base_installer.js",
   "dependencies": {
   },
   "devDependencies": {},

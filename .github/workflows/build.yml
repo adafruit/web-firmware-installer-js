@@ -27,8 +27,8 @@ jobs:
       with:
         directory: 'dist'
         js_engine: 'uglify-js'
-    # Eventually only do this step on release
     - name: Commit Distribution Files
+      if: ${{ github.event_name == 'release' }}
       uses: stefanzweifel/git-auto-commit-action@v4
       with:
         repository: 'dist'

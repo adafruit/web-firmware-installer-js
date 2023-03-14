@@ -22,7 +22,8 @@ jobs:
       run: "yes | cp -f *.{js,py,json} build/"
     - name: Minify JavaScript
       uses: jossydevers/minify-js@v1.0.0
-      working-directory: ./build
+      with:
+        working-directory: ./build
     # Eventually only do this step on release
     - name: Commit Build Files
       uses: stefanzweifel/git-auto-commit-action@v4

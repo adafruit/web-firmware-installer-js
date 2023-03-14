@@ -1,0 +1,34 @@
+name: Jekyll site CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  release:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Create Build Folder
+      run: "mkdir -p build"
+    - name: Copy files to build folder
+      run: "yes | cp -f *.{js,py,json} build"
+    - name: Minify JavaScript
+      uses: nizarmah/auto-minify@v2.1
+      with:
+        directory: 'build'
+        overwrite: true
+    # Eventually only do this step on release
+    - name: Commit Build Files
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        repository: 'build'
+        commit_message: "Github Action: JS Build files"
+        branch: ${{ github.ref }}

@@ -32,4 +32,3 @@ jobs:
         repository: 'dist'
         commit_message: "Github Action: Updated dist files"
         branch: ${{ github.ref }}
-        push_options: '--force'

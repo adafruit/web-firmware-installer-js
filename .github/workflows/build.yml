@@ -19,7 +19,7 @@ jobs:
     - name: Create dist Folder
       run: "mkdir -p dist"
     - name: Remove existing dist files
-      run: "rm dist/*"
+      run: "rm -f dist/*"
     - name: Copy files to dist folder
       run: "cp *.{js,py,json} dist/"
     - name: Minify JavaScript

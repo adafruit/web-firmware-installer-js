@@ -19,7 +19,7 @@ jobs:
     - name: Create Build Folder
       run: "mkdir -p build"
     - name: Copy files to build folder
-      run: "yes | cp -f *.{js,py,json} build/"
+      run: "yes | cp -f *.{mjs,py,json} build/"
     - name: Minify JavaScript
       uses: nizarmah/auto-minify@v2.1
       with:

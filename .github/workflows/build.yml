@@ -24,9 +24,9 @@ jobs:
       run: "rm build/*.js"
     - name: Copy files to build folder
       run: |
-      for file in *.js; do
-        cp -- "$file" build/"${file%.js}.min.js"
-      done
+        for file in *.js; do
+          cp -- "$file" build/"${file%.js}.min.js"
+        done
     - name: Minify JavaScript
       uses: nizarmah/auto-minify@v2.1
       with:

@@ -1,0 +1,33 @@
+{
+  "name": "@adafruit/web-firmware-installer-js",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "version": "1.0.0",
+  "description": "ESP32 Web-based Firmware Installation Tool for CircuitPython and more",
+  "main": "base_installer.mjs",
+  "dependencies": {
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/adafruit/web-firmware-installer-js.git"
+  },
+  "keywords": [
+    "CircuitPython",
+    "installer",
+    "install",
+    "install tool",
+    "firmware",
+    "esp32"
+  ],
+  "author": "Melissa LeBlanc-Williams",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/adafruit/web-firmware-installer-js/issues"
+  },
+  "homepage": "https://github.com/adafruit/web-firmware-installer-js#readme"
+}

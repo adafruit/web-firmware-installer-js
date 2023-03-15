@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: MIT
 
 'use strict';
-import {html, render} from 'https://unpkg.com/lit-html?module';
-import {asyncAppend} from 'https://unpkg.com/lit-html/directives/async-append?module';
-import * as esptoolPackage from "https://unpkg.com/esp-web-flasher@5.1.2/dist/web/index.js?module"
+import {html, render} from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
+import {asyncAppend} from 'https://cdn.jsdelivr.net/npm/lit-html/directives/async-append/+esm';
+import * as esptoolPackage from "https://cdn.jsdelivr.net/npm/esp-web-flasher@5.1.2/dist/web/index.js/+esm"
 
 export const ESP_ROM_BAUD = 115200;
 

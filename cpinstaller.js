@@ -110,8 +110,16 @@ export class CPInstallButton extends InstallButton {
     }
 
     async connectedCallback() {
-        // Required
-        this.boardIds = this.getAttribute("boardid").split(",");
+        // Load the Board Definitions before the button is ever clicked
+        const response = await fetch(BOARD_DEFS);
+        this.boardDefs = await response.json();
+
+        let boardIds = this.getAttribute("boardid")
+        if (!boardIds || boardIds.trim().length === 0) {
+            this.boardIds = Object.keys(this.boardDefs);
+        } else {
+            this.boardIds = boardIds.split(",");
+        }
 
         // If there is only one board id, then select it by default
         if (this.boardIds.length === 1) {
@@ -122,10 +130,6 @@ export class CPInstallButton extends InstallButton {
         if (this.getAttribute("version")) {
             this.releaseVersion = this.getAttribute("version");
         }
-
-        // Load the Board Definitions before the button is ever clicked
-        const response = await fetch(BOARD_DEFS);
-        this.boardDefs = await response.json();
 
         super.connectedCallback();
     }
@@ -439,6 +443,18 @@ export class CPInstallButton extends InstallButton {
         for (let boardId of this.boardIds) {
             options.push({id: boardId, name: this.getBoardName(boardId)});
         }
+
+        options.sort((a, b) => {
+            let boardA = a.name.trim().toLowerCase();
+            let boardB = b.name.trim().toLowerCase();
+            if (boardA < boardB) {
+                return -1;
+            }
+            if (boardA > boardB) {
+                return 1;
+            }
+            return 0;
+        });
         return options;
     }
 

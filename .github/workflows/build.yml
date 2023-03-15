@@ -26,6 +26,8 @@ jobs:
       with:
         directory: 'dist'
         js_engine: 'uglify-js'
+    - name: Update Minified Dependencies
+      run: "sed -i 's/base_installer\.js/base_installer.min.js/g' dist/*.min.js"
     - name: Commit Distribution Files
       uses: stefanzweifel/git-auto-commit-action@v4
       with:

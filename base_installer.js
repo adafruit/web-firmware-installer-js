@@ -7,33 +7,6 @@ import {html, render} from 'https://unpkg.com/lit-html?module';
 import {asyncAppend} from 'https://unpkg.com/lit-html/directives/async-append?module';
 import * as esptoolPackage from "https://unpkg.com/esp-web-flasher@5.1.2/dist/web/index.js?module"
 
-// TODO: Figure out how to make the Web Serial from ESPTool and Web Serial to communicate with CircuitPython not conflict
-// I think at the very least we'll have to reuse the same port so the user doesn't need to reselct, though it's possible it
-// may change after reset. Since it's not
-//
-// For now, we'll use the following procedure for ESP32-S2 and ESP32-S3:
-// 1. Install the bin file
-// 2. Reset the board
-// (if version 8.0.0-beta.6 or later)
-// 3. Generate the settings.toml file
-// 4. Write the settings.toml to the board via the REPL
-// 5. Reset the board again
-//
-// For the esp32 and esp32c3, the procedure may be slightly different and going through the
-// REPL may be required for the settings.toml file.
-// 1. Install the bin file
-// 2. Reset the board
-// (if version 8.0.0-beta.6 or later)
-// 3. Generate the settings.toml file
-// 4. Write the settings.toml to the board via the REPL
-// 5. Reset the board again
-//
-// To run REPL code, I may need to modularize the work I did for code.circuitpython.org
-// That allows you to run code in the REPL and get the output back. I may end up creating a
-// library that uses Web Serial and allows you to run code in the REPL and get the output back
-// because it's very integrated into the serial recieve and send code.
-//
-
 export const ESP_ROM_BAUD = 115200;
 
 export class InstallButton extends HTMLButtonElement {
@@ -141,9 +114,13 @@ export class InstallButton extends HTMLButtonElement {
             if (!InstallButton.isSupported) {
                 await this.showNotSupported();
             } else {
-                await this.showMenu();
+                await this.buttonClickHandler(e);
             }
         });
+    }
+
+    async buttonClickHandler(e) {
+        await this.showMenu();
     }
 
     // Parse out the url parameters from the current url

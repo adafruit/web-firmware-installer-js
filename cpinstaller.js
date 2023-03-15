@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 
 'use strict';
-import { html } from 'https://unpkg.com/lit-html?module';
-import { map } from 'https://unpkg.com/lit-html/directives/map?module';
-import * as toml from "https://unpkg.com/iarna-toml-esm@3.0.5/toml-esm.mjs"
+import { html } from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
+import { map } from 'https://cdn.jsdelivr.net/npm/lit-html/directives/map/+esm';
+import * as toml from "https://cdn.jsdelivr.net/npm/iarna-toml-esm@3.0.5/+esm"
 import * as zip from "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.6.65/+esm";
-import * as esptoolPackage from "https://unpkg.com/esp-web-flasher@5.1.2/dist/web/index.js?module"
-import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@1.2.1/repl.js';
+import * as esptoolPackage from "https://cdn.jsdelivr.net/npm/esp-web-flasher@5.1.2/dist/web/index.js/+esm"
+import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js/repl.js';
 import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
 // TODO: Combine multiple steps together. For now it was easier to make them separate,

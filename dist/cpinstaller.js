@@ -4,11 +4,10 @@
 
 'use strict';
 import { html } from 'https://unpkg.com/lit-html?module';
+import { map } from 'https://unpkg.com/lit-html/directives/map?module';
 import * as toml from "https://unpkg.com/iarna-toml-esm@3.0.5/toml-esm.mjs"
 import * as zip from "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.6.65/+esm";
 import * as esptoolPackage from "https://unpkg.com/esp-web-flasher@5.1.2/dist/web/index.js?module"
-
-//import * as esptoolPackage from "https://adafruit.github.io/Adafruit_WebSerial_ESPTool/js/modules/esptool.js"
 import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@1.2.1/repl.js';
 import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
@@ -45,8 +44,10 @@ export class CPInstallButton extends InstallButton {
         super();
         this.releaseVersion = "[version]";
         this.boardName = "ESP32-based device";
-        this.boardId = null;
+        this.boardIds = null;
+        this.selectedBoardId = null;
         this.bootloaderUrl = null;
+        this.boardDefs = null;
         this.uf2FileUrl = null;
         this.binFileUrl = null;
         this.releaseVersion = 0;
@@ -110,64 +111,74 @@ export class CPInstallButton extends InstallButton {
 
     async connectedCallback() {
         // Required
-        this.boardId = this.getAttribute("boardid");
+        this.boardIds = this.getAttribute("boardid").split(",");
+
+        // If there is only one board id, then select it by default
+        if (this.boardIds.length === 1) {
+            this.selectedBoardId = this.boardIds[0];
+        }
 
         // If not provided, it will use the stable release if DEFAULT_RELEASE_LATEST is false
         if (this.getAttribute("version")) {
             this.releaseVersion = this.getAttribute("version");
         }
 
-        // Pull in the info from the json as the default values. These can be overwritten by the attributes.
+        // Load the Board Definitions before the button is ever clicked
         const response = await fetch(BOARD_DEFS);
-        const boardDefs = await response.json();
-        let releaseInfo = null;
-
-        if (Object.keys(boardDefs).includes(this.boardId)) {
-            const boardDef = boardDefs[this.boardId];
-            this.chipFamily = boardDef.chipfamily;
-            if (boardDef.name) {
-                this.boardName = boardDef.name;
-            }
-            if (boardDef.bootloader) {
-                this.bootloaderUrl = this.updateBinaryUrl(boardDef.bootloader);
-            }
-            const sortedReleases = this.sortReleases(boardDef.releases);
-
-            if (this.releaseVersion) {  // User specified a release
-                for (let release of sortedReleases) {
-                    if (release.version == this.releaseVersion) {
-                        releaseInfo = release;
-                        break;
-                    }
-                }
-            }
-            if (!releaseInfo) { // Release version not found or not specified
-                if (DEFAULT_RELEASE_LATEST) {
-                    releaseInfo = sortedReleases[sortedReleases.length - 1];
-                } else {
-                    releaseInfo = sortedReleases[0];
-                }
-                this.releaseVersion = releaseInfo.version;
-            }
-            if (releaseInfo.uf2file) {
-                this.uf2FileUrl = this.updateBinaryUrl(releaseInfo.uf2file);
-            }
-            if (releaseInfo.binfile) {
-                this.binFileUrl = this.updateBinaryUrl(releaseInfo.binfile);
-            }
-        }
-
-        // Nice to have for now
-        if (this.getAttribute("chipfamily")) {
-            this.chipFamily = this.getAttribute("chipfamily");
-        }
-
-        if (this.getAttribute("boardname")) {
-            this.boardName = this.getAttribute("boardname");
-        }
-        this.menuTitle = `CircuitPython Installer for ${this.boardName}`;
+        this.boardDefs = await response.json();
 
         super.connectedCallback();
+    }
+
+    async loadBoard(boardId) {
+       // Pull in the info from the json as the default values. These can be overwritten by the attributes.
+       let releaseInfo = null;
+
+       if (Object.keys(this.boardDefs).includes(boardId)) {
+           const boardDef = this.boardDefs[boardId];
+           this.chipFamily = boardDef.chipfamily;
+           if (boardDef.name) {
+               this.boardName = boardDef.name;
+           }
+           if (boardDef.bootloader) {
+               this.bootloaderUrl = this.updateBinaryUrl(boardDef.bootloader);
+           }
+           const sortedReleases = this.sortReleases(boardDef.releases);
+
+           if (this.releaseVersion) {  // User specified a release
+               for (let release of sortedReleases) {
+                   if (release.version == this.releaseVersion) {
+                       releaseInfo = release;
+                       break;
+                   }
+               }
+           }
+
+           if (!releaseInfo) { // Release version not found or not specified
+               if (DEFAULT_RELEASE_LATEST) {
+                   releaseInfo = sortedReleases[sortedReleases.length - 1];
+               } else {
+                   releaseInfo = sortedReleases[0];
+               }
+               this.releaseVersion = releaseInfo.version;
+           }
+           if (releaseInfo.uf2file) {
+               this.uf2FileUrl = this.updateBinaryUrl(releaseInfo.uf2file);
+           }
+           if (releaseInfo.binfile) {
+               this.binFileUrl = this.updateBinaryUrl(releaseInfo.binfile);
+           }
+       }
+
+       // Nice to have for now
+       if (this.getAttribute("chipfamily")) {
+           this.chipFamily = this.getAttribute("chipfamily");
+       }
+
+       if (this.getAttribute("boardname")) {
+           this.boardName = this.getAttribute("boardname");
+       }
+       this.menuTitle = `CircuitPython Installer for ${this.boardName}`;
     }
 
     attributeChangedCallback(attribute, previousValue, currentValue) {
@@ -227,6 +238,25 @@ export class CPInstallButton extends InstallButton {
 
     // This is the data for the CircuitPython specific dialogs. Some are reused.
     cpDialogs = {
+        boardSelect: {
+            closeable: true,
+            template: (data) => html`
+                <p>
+                    There are multiple boards are available. Select the board you have:
+                </p>
+                <p>
+                    <select id="availableBoards">
+                        <option value="0"> - boards - </option>
+                        ${map(data.boards, (board, index) => html`<option value="${board.id}" ${board.id == data.default ? "selected" : ""}>${board.name}</option>`)}
+                    </select>
+                </p>
+            `,
+            buttons: [{
+                label: "Select Board",
+                onClick: this.selectBoardHandler,
+                isEnabled: async () => { return this.currentDialogElement.querySelector("#availableBoards").value != "0" },
+            }],
+        },
         welcome: {
             closeable: true,
             template: (data) => html`
@@ -397,6 +427,20 @@ export class CPInstallButton extends InstallButton {
         },
     }
 
+    getBoardName(boardId) {
+        if (Object.keys(this.boardDefs).includes(boardId)) {
+            return this.boardDefs[boardId].name;
+        }
+        return null;
+    }
+
+    getBoardOptions() {
+        let options = [];
+        for (let boardId of this.boardIds) {
+            options.push({id: boardId, name: this.getBoardName(boardId)});
+        }
+        return options;
+    }
 
     ////////// STEP FUNCTIONS //////////
 
@@ -723,6 +767,35 @@ export class CPInstallButton extends InstallButton {
                 // Ignore
             }
             this.replSerialDevice = null;
+        }
+    }
+
+    async buttonClickHandler(e, skipBoardSelector = false) {
+        if (this.boardIds.length > 1 && (!this.selectedBoardId || !skipBoardSelector)) {
+            this.showDialog(this.dialogs.boardSelect, {
+                boards: this.getBoardOptions(),
+                default: this.selectedBoardId,
+            });
+
+            this.currentDialogElement.querySelector("#availableBoards").addEventListener(
+                "change", this.updateButtons.bind(this)
+            );
+
+            return;
+        }
+
+        await this.loadBoard(this.selectedBoardId);
+
+        super.buttonClickHandler(e);
+    }
+
+    async selectBoardHandler(e) {
+        const selectedValue = this.currentDialogElement.querySelector("#availableBoards").value;
+        if (Object.keys(this.boardDefs).includes(selectedValue)) {
+            this.selectedBoardId = selectedValue;
+            this.closeDialog();
+
+            this.buttonClickHandler(null, true);
         }
     }
 
@@ -1258,6 +1331,5 @@ export class CPInstallButton extends InstallButton {
         return Promise.race([callback(), this.sleep(ms).then(() => {throw Error("Timed Out");})]);
     }
 }
-
 
 customElements.define('cp-install-button', CPInstallButton, {extends: "button"});

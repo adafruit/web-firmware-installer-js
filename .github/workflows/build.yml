@@ -1,10 +1,14 @@
 name: Build Distribution Files
 
 on:
-  pull_request:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
+    # Only run the build on Adafruit's repository. It makes the PRs less messy.
+    if: startswith(github.repository, 'adafruit/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

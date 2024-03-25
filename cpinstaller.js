@@ -618,8 +618,9 @@ export class CPInstallButton extends InstallButton {
             return;
         }
         if (bootloaderVolume && bootloaderVolume != dirHandle.name) {
-            alert(`The selected drive named ${dirHandle.name} does not match the expected name of ${bootloaderVolume}. Please select the correct drive.`);
-            return;
+            if (!confirm(`The selected drive named ${dirHandle.name} does not match the expected name of ${bootloaderVolume}. Continue anyways?`)) {
+                return;
+            }
         }
         if (!await this._verifyPermission(dirHandle)) {
             alert("Unable to write to the selected folder");

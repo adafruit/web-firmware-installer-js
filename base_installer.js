@@ -5,8 +5,7 @@
 'use strict';
 import {html, render} from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
 import {asyncAppend} from 'https://cdn.jsdelivr.net/npm/lit-html/directives/async-append/+esm';
-import * as esptoolPackage from "https://cdn.jsdelivr.net/npm/esp-web-flasher@5.1.2/dist/web/index.js/+esm"
-
+import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.1/bundle.js";
 export const ESP_ROM_BAUD = 115200;
 
 export class InstallButton extends HTMLButtonElement {
@@ -15,12 +14,15 @@ export class InstallButton extends HTMLButtonElement {
 
     constructor() {
         super();
+        this.baudRate = ESP_ROM_BAUD;
         this.dialogElements = {};
         this.currentFlow = null;
         this.currentStep = 0;
         this.currentDialogElement = null;
-        this.port = null;
-        this.espStub = null;
+        this.device = null;
+        this.transport = null;
+        this.esploader = null;
+        this.chip = null;
         this.dialogCssClass = "install-dialog";
         this.connected = this.connectionStates.DISCONNECTED;
         this.menuTitle = "Installer Menu";
@@ -230,7 +232,12 @@ export class InstallButton extends HTMLButtonElement {
             buttonElement.id = this.createIdFromLabel(button.label);
             buttonElement.addEventListener("click", async (e) => {
                 e.preventDefault();
-                await button.onClick.bind(this)();
+                if (button.onClick instanceof Function) {
+                    await button.onClick.bind(this)();
+                } else if (button.onClick instanceof Array) {
+                    let [func, ...params] = button.onClick;
+                    await func.bind(this)(...params);
+                }
             });
             buttonElement.addEventListener("update", async (e) => {
                 if ("onUpdate" in button) {
@@ -343,13 +350,17 @@ export class InstallButton extends HTMLButtonElement {
         return macAddr.map((value) => value.toString(16).toUpperCase().padStart(2, "0")).join(":");
     }
 
-    async disconnect() {
-        if (this.espStub) {
-            await espStub.disconnect();
-            await espStub.port.close();
-            this.updateUIConnected(this.connectionStates.DISCONNECTED);
-            this.espStub = null;
+    async espDisconnect() {
+        if (this.transport) {
+            await this.transport.disconnect();
+            await this.transport.waitForUnlock(1500);
+            this.updateEspConnected(this.connectionStates.DISCONNECTED);
+            this.transport = null;
+            this.device = null;
+            this.chip = null;
+            return true;
         }
+        return false;
     }
 
     async runFlow(flow) {
@@ -390,6 +401,17 @@ export class InstallButton extends HTMLButtonElement {
         }
     }
 
+    async advanceSteps(stepCount) {
+        if (!this.currentFlow) {
+            return;
+        }
+
+        if (this.currentStep <= this.currentFlow.steps.length + stepCount) {
+            this.currentStep += stepCount;
+            await this.currentFlow.steps[this.currentStep].bind(this)();
+        }
+    }
+
     async showMenu() {
         // Display Menu
         this.showDialog(this.dialogs.menu);
@@ -405,38 +427,60 @@ export class InstallButton extends HTMLButtonElement {
         this.showDialog(this.dialogs.error, {message: message});
     }
 
-    async setBaudRateIfChipSupports(chipType, baud) {
-        if (baud == ESP_ROM_BAUD) { return } // already the default
-
-        if (chipType == esptoolPackage.CHIP_FAMILY_ESP32) { // only supports the default
-            this.logMsg(`ESP32 Chip only works at 115200 instead of the preferred ${baud}. Staying at 115200...`);
-            return
-        }
+    async setBaudRateIfChipSupports(baud) {
+        if (baud == this.baudRate) { return } // already the current setting
 
         await this.changeBaudRate(baud);
     }
 
     async changeBaudRate(baud) {
-        if (this.espStub && this.baudRates.includes(baud)) {
-            await this.espStub.setBaudrate(baud);
+        if (this.baudRates.includes(baud)) {
+            if (this.transport == null) {
+                this.baudRate = baud;
+            } else {
+                this.errorMsg("Cannot change baud rate while connected.");
+            }
         }
     }
 
-    async espHardReset(bootloader = false) {
-        if (this.espStub) {
-            await this.espStub.hardReset(bootloader);
+    async espHardReset() {
+        if (this.esploader) {
+            await this.esploader.hardReset();
         }
     }
 
     async espConnect(logger) {
-        // - Request a port and open a connection.
-        this.port = await navigator.serial.requestPort();
-
         logger.log("Connecting...");
-        await this.port.open({ baudRate: ESP_ROM_BAUD });
+
+        if (this.device === null) {
+            this.device = await navigator.serial.requestPort({});
+            this.transport = new Transport(this.device, true);
+        }
+
+        const espLoaderTerminal = {
+            clean() {
+                // Clear the terminal
+            },
+            writeLine(data) {
+                logger.log(data);
+            },
+            write(data) {
+                logger.log(data);
+            },
+        };
+
+        const loaderOptions = {
+            transport: this.transport,
+            baudrate: this.baudRate,
+            terminal: espLoaderTerminal,
+            debugLogging: false,
+        };
+
+        this.esploader = new ESPLoader(loaderOptions);
+        this.chip = await this.esploader.main();
 
         logger.log("Connected successfully.");
 
-        return new esptoolPackage.ESPLoader(this.port, logger);
+        return this.esploader;
     };
 }

@@ -675,7 +675,7 @@ export class CPInstallButton extends InstallButton {
             return;
         }
 
-        //try {
+        try {
             this.logMsg(`Connected to ${this.esploader.chip.CHIP_NAME}`);
 
             // check chip compatibility
@@ -695,14 +695,14 @@ export class CPInstallButton extends InstallButton {
             this.errorMsg("Oops, this is the wrong firmware for your board.")
             await this.espDisconnect();
 
-        /*} catch (err) {
+        } catch (err) {
             if (this.transport) {
                 await this.transport.disconnect();
             }
             // Disconnection before complete
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
             this.errorMsg("Oops, we lost connection to your board before completing the install. Please check your USB connection and click Connect again. Refresh the browser if it becomes unresponsive.")
-        }*/
+        }
     }
 
     async onSerialReceive(e) {

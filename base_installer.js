@@ -232,12 +232,7 @@ export class InstallButton extends HTMLButtonElement {
             buttonElement.id = this.createIdFromLabel(button.label);
             buttonElement.addEventListener("click", async (e) => {
                 e.preventDefault();
-                if (button.onClick instanceof Function) {
-                    await button.onClick.bind(this)();
-                } else if (button.onClick instanceof Array) {
-                    let [func, ...params] = button.onClick;
-                    await func.bind(this)(...params);
-                }
+                await button.onClick.bind(this)();
             });
             buttonElement.addEventListener("update", async (e) => {
                 if ("onUpdate" in button) {

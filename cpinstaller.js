@@ -309,7 +309,7 @@ export class CPInstallButton extends InstallButton {
                 this.previousButton,
                 {
                     label: "Skip Erase",
-                    onClick: [this.advanceSteps, 2],
+                    onClick: async (e) => { if (confirm("Skipping the erase step may cause issues and is not recommended. Continue?")) { await this.advanceSteps(2); }},
                 },
                 {
                     label: "Continue",
@@ -675,16 +675,17 @@ export class CPInstallButton extends InstallButton {
             return;
         }
 
-        try {
-            this.logMsg(`Connected to ${this.esploader.chip}`);
-            this.logMsg(`MAC Address: ${this.formatMacAddr(this.esploader.chip.readMac(this.esploader))}`);
+        //try {
+            this.logMsg(`Connected to ${this.esploader.chip.CHIP_NAME}`);
 
             // check chip compatibility
-            if (this.chipFamily == `${this.esploader.chip}`) {
+            if (this.chipFamily == `${this.esploader.chip.CHIP_NAME}`.toLowerCase()) {
                 this.logMsg("This chip checks out");
-                this.esploader.addEventListener("disconnect", () => {
-                    this.updateEspConnected(this.connectionStates.DISCONNECTED);
-                });
+
+                // esploader-js doesn't have a disconnect event, so we can't use this
+                //this.esploader.addEventListener("disconnect", () => {
+                //    this.updateEspConnected(this.connectionStates.DISCONNECTED);
+                //});
 
                 await this.nextStep();
                 return;
@@ -694,14 +695,14 @@ export class CPInstallButton extends InstallButton {
             this.errorMsg("Oops, this is the wrong firmware for your board.")
             await this.espDisconnect();
 
-        } catch (err) {
+        /*} catch (err) {
             if (this.transport) {
                 await this.transport.disconnect();
             }
             // Disconnection before complete
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
             this.errorMsg("Oops, we lost connection to your board before completing the install. Please check your USB connection and click Connect again. Refresh the browser if it becomes unresponsive.")
-        }
+        }*/
     }
 
     async onSerialReceive(e) {

@@ -679,7 +679,8 @@ export class CPInstallButton extends InstallButton {
             this.logMsg(`Connected to ${this.esploader.chip.CHIP_NAME}`);
 
             // check chip compatibility
-            if (this.chipFamily == `${this.esploader.chip.CHIP_NAME}`.toLowerCase()) {
+            console.log(this.chipFamily, `${this.esploader.chip.CHIP_NAME}`.toLowerCase());
+            if (this.chipFamily == `${this.esploader.chip.CHIP_NAME}`.toLowerCase().replaceAll("-", "")) {
                 this.logMsg("This chip checks out");
 
                 // esploader-js doesn't have a disconnect event, so we can't use this

@@ -679,7 +679,6 @@ export class CPInstallButton extends InstallButton {
             this.logMsg(`Connected to ${this.esploader.chip.CHIP_NAME}`);
 
             // check chip compatibility
-            console.log(this.chipFamily, `${this.esploader.chip.CHIP_NAME}`.toLowerCase());
             if (this.chipFamily == `${this.esploader.chip.CHIP_NAME}`.toLowerCase().replaceAll("-", "")) {
                 this.logMsg("This chip checks out");
 

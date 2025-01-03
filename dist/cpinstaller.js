@@ -7,8 +7,8 @@ import { html } from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
 import { map } from 'https://cdn.jsdelivr.net/npm/lit-html/directives/map/+esm';
 import * as toml from "https://cdn.jsdelivr.net/npm/iarna-toml-esm@3.0.5/+esm"
 import * as zip from "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.6.65/+esm";
-import * as esptoolPackage from "https://cdn.jsdelivr.net/npm/esp-web-flasher@5.1.2/dist/web/index.js/+esm"
-import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js/repl.js';
+import { default as CryptoJS } from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm";
+import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@3.2.1/repl.js';
 import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
 // TODO: Combine multiple steps together. For now it was easier to make them separate,
@@ -19,6 +19,8 @@ import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 //
 // TODO: Hide the log and make it accessible via the menu (future feature, output to console for now)
 // May need to deal with the fact that the ESPTool uses Web Serial and CircuitPython REPL uses Web Serial
+//
+// TODO: Update File Operations to take advantage of the REPL FileOps class to allow non-CIRCUITPY drive access
 
 const PREFERRED_BAUDRATE = 921600;
 const COPY_CHUNK_SIZE = 64 * 1024; // 64 KB Chunks
@@ -26,12 +28,6 @@ const DEFAULT_RELEASE_LATEST = false;   // Use the latest release or the stable 
 const BOARD_DEFS = "https://adafruit-circuit-python.s3.amazonaws.com/esp32_boards.json";
 
 const CSS_DIALOG_CLASS = "cp-installer-dialog";
-const FAMILY_TO_CHIP_MAP = {
-    'esp32s2': esptoolPackage.CHIP_FAMILY_ESP32S2,
-    'esp32s3': esptoolPackage.CHIP_FAMILY_ESP32S3,
-    'esp32c3': esptoolPackage.CHIP_FAMILY_ESP32C3,
-    'esp32': esptoolPackage.CHIP_FAMILY_ESP32
-}
 
 const attrMap = {
     "bootloader": "bootloaderUrl",
@@ -214,12 +210,12 @@ export class CPInstallButton extends InstallButton {
             isEnabled: async () => { return !this.hasNativeUsb() && !!this.binFileUrl },
         },
         uf2Only: { // Upgrade when Bootloader is already installer
-            label: `Upgrade/Install CircuitPython [version] UF2 Only`,
+            label: `Install CircuitPython [version] UF2 Only`,
             steps: [this.stepWelcome, this.stepSelectBootDrive, this.stepCopyUf2, this.stepSelectCpyDrive, this.stepCredentials, this.stepSuccess],
             isEnabled: async () => { return this.hasNativeUsb() && !!this.uf2FileUrl },
         },
         binOnly: {
-            label: `Upgrade CircuitPython [version] Bin Only`,
+            label: `Install CircuitPython [version] Bin Only`,
             steps: [this.stepWelcome, this.stepSerialConnect, this.stepConfirm, this.stepEraseAll, this.stepFlashBin, this.stepSuccess],
             isEnabled: async () => { return !!this.binFileUrl },
         },
@@ -311,6 +307,10 @@ export class CPInstallButton extends InstallButton {
             `,
             buttons: [
                 this.previousButton,
+                {
+                    label: "Skip Erase",
+                    onClick: async (e) => { if (confirm("Skipping the erase step may cause issues and is not recommended. Continue?")) { await this.advanceSteps(2); }},
+                },
                 {
                     label: "Continue",
                     onClick: this.nextStep,
@@ -481,7 +481,7 @@ export class CPInstallButton extends InstallButton {
             action: "Erasing Flash",
         });
         try {
-            await this.espStub.eraseFlash();
+            await this.esploader.eraseFlash();
         } catch (err) {
             this.errorMsg("Unable to finish erasing Flash memory. Please try again.");
         }
@@ -550,8 +550,8 @@ export class CPInstallButton extends InstallButton {
 
     async stepSetupRepl() {
         // TODO: Try and reuse the existing connection so user doesn't need to select it again
-        /*if (this.port) {
-            this.replSerialDevice = this.port;
+        /*if (this.device) {
+            this.replSerialDevice = this.device;
             await this.setupRepl();
         }*/
         const serialPortName = await this.getSerialPortName();
@@ -579,6 +579,7 @@ export class CPInstallButton extends InstallButton {
             // TODO: Currently the control is just disabled and not used because we don't have anything to modify boot.py in place.
             // Setting mass_storage_disabled to true/false will display the checkbox with the appropriately checked state.
             //parameters.mass_storage_disabled = true;
+            // This can be updated to use FileOps for ease of implementation
         }
 
         // Display Credentials Request Dialog
@@ -658,45 +659,34 @@ export class CPInstallButton extends InstallButton {
     async espToolConnectHandler(e) {
         await this.onReplDisconnected(e);
         await this.espDisconnect();
-        let esploader;
+        await this.setBaudRateIfChipSupports(PREFERRED_BAUDRATE);
         try {
-            esploader = await this.espConnect({
+            this.updateEspConnected(this.connectionStates.CONNECTING);
+            await this.espConnect({
                 log: (...args) => this.logMsg(...args),
                 debug: (...args) => {},
                 error: (...args) => this.errorMsg(...args),
             });
+            this.updateEspConnected(this.connectionStates.CONNECTED);
         } catch (err) {
             // It's possible the dialog was also canceled here
+            this.updateEspConnected(this.connectionStates.DISCONNECTED);
             this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab.");
             return;
         }
 
         try {
-            this.updateEspConnected(this.connectionStates.CONNECTING);
-            await esploader.initialize();
-            this.updateEspConnected(this.connectionStates.CONNECTED);
-        } catch (err) {
-            await esploader.disconnect();
-            // Disconnection before complete
-            this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.errorMsg("Unable to connect to the board. Make sure it is in bootloader mode by holding the boot0 button when powering on and try again.")
-            return;
-        }
-
-        try {
-            this.logMsg(`Connected to ${esploader.chipName}`);
-            this.logMsg(`MAC Address: ${this.formatMacAddr(esploader.macAddr())}`);
+            this.logMsg(`Connected to ${this.esploader.chip.CHIP_NAME}`);
 
             // check chip compatibility
-            if (FAMILY_TO_CHIP_MAP[this.chipFamily] == esploader.chipFamily) {
+            if (this.chipFamily == `${this.esploader.chip.CHIP_NAME}`.toLowerCase().replaceAll("-", "")) {
                 this.logMsg("This chip checks out");
-                this.espStub = await esploader.runStub();
-                this.espStub.addEventListener("disconnect", () => {
-                    this.updateEspConnected(this.connectionStates.DISCONNECTED);
-                    this.espStub = null;
-                });
 
-                await this.setBaudRateIfChipSupports(esploader.chipFamily, PREFERRED_BAUDRATE);
+                // esploader-js doesn't have a disconnect event, so we can't use this
+                //this.esploader.addEventListener("disconnect", () => {
+                //    this.updateEspConnected(this.connectionStates.DISCONNECTED);
+                //});
+
                 await this.nextStep();
                 return;
             }
@@ -706,7 +696,9 @@ export class CPInstallButton extends InstallButton {
             await this.espDisconnect();
 
         } catch (err) {
-            await esploader.disconnect();
+            if (this.transport) {
+                await this.transport.disconnect();
+            }
             // Disconnection before complete
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
             this.errorMsg("Oops, we lost connection to your board before completing the install. Please check your USB connection and click Connect again. Refresh the browser if it becomes unresponsive.")
@@ -1024,10 +1016,28 @@ export class CPInstallButton extends InstallButton {
 
     async downloadAndInstall(url, fileToExtract = null, cacheFile = false) {
         let [filename, fileBlob] = await this.downloadAndExtract(url, fileToExtract, cacheFile);
+        const fileArray = [];
+
+        const readBlobAsBinaryString = (inputFile) => {
+            const reader = new FileReader();
+
+            return new Promise((resolve, reject) => {
+                reader.onerror = () => {
+                    reader.abort();
+                    reject(new DOMException("Problem parsing input file."));
+                };
+
+                reader.onload = () => {
+                    resolve(reader.result);
+                };
+                reader.readAsBinaryString(inputFile);
+            });
+        };
 
         // Update the Progress dialog
         if (fileBlob) {
-            const fileContents = (new Uint8Array(await fileBlob.arrayBuffer())).buffer;
+            fileArray.push({ data: await readBlobAsBinaryString(fileBlob), address: 0 });
+
             let lastPercent = 0;
             this.showDialog(this.dialogs.actionProgress, {
                 action: `Flashing ${filename}`
@@ -1037,14 +1047,22 @@ export class CPInstallButton extends InstallButton {
             progressElement.value = 0;
 
             try {
-                await this.espStub.flashData(fileContents, (bytesWritten, totalBytes) => {
-                    let percentage = Math.round((bytesWritten / totalBytes) * 100);
-                    if (percentage > lastPercent) {
-                        progressElement.value = percentage;
-                        this.logMsg(`${percentage}% (${bytesWritten}/${totalBytes})...`);
-                        lastPercent = percentage;
-                    }
-                }, 0, 0);
+                const flashOptions = {
+                    fileArray: fileArray,
+                    flashSize: "keep",
+                    eraseAll: false,
+                    compress: true,
+                    reportProgress: (fileIndex, written, total) => {
+                        let percentage = Math.round((written / total) * 100);
+                        if (percentage > lastPercent) {
+                            progressElement.value = percentage;
+                            this.logMsg(`${percentage}% (${written}/${total})...`);
+                            lastPercent = percentage;
+                        }
+                    },
+                    calculateMD5Hash: (image) => CryptoJS.MD5(CryptoJS.enc.Latin1.parse(image)),
+                };
+                await this.esploader.writeFlash(flashOptions);
             } catch (err) {
                 this.errorMsg(`Unable to flash file: ${filename}. Error Message: ${err}`);
             }
@@ -1254,20 +1272,6 @@ export class CPInstallButton extends InstallButton {
         }
         this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing...");
         return {};
-    }
-
-    async espDisconnect() {
-        // Disconnect the ESPTool
-        if (this.espStub) {
-            await this.espStub.disconnect();
-            this.espStub.removeEventListener("disconnect", this.espDisconnect.bind(this));
-            this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.espStub = null;
-        }
-        if (this.port) {
-            await this.port.close();
-            this.port = null;
-        }
     }
 
     async serialTransmit(msg) {

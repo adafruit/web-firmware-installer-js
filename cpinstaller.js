@@ -260,39 +260,61 @@ export class CPInstallButton extends InstallButton {
         welcome: {
             closeable: true,
             template: (data) => html`
+                <h3>Web Firmware Installer</h3>
                 <p>
-                    Welcome to the CircuitPython Installer. This tool will install CircuitPython on your ${data.boardName}.
+                    Welcome!
+                    This tool will install a UF2 bootloader and/or CircuitPython on your ${data.boardName}.
                 </p>
                 <p>
-                    This tool is <strong>new</strong> and <strong>experimental</strong>. If you experience any issues, feel free to check out
+                    This tool is <strong>experimental</strong>.
+                    If you experience any issues, feel free to check out
                     <a href="https://github.com/adafruit/circuitpython-org/issues">https://github.com/adafruit/circuitpython-org/issues</a>
-                    to see if somebody has already submitted the same issue you are experiencing. If not, feel free to open a new issue. If
-                    you do see the same issue and are able to contribute additional information, that would be appreciated.
+                    to see if the issue you are experiencing has already been reported.
+                    If not, feel free to open a new issue.
+                    If you do see the same issue and are able to contribute additional information,
+                    that would be appreciated.
                 </p>
                 <p>
-                    If you are unable to use this tool, then the manual installation methods should still work.
+                    If you are unable to use this tool,
+                    then the manual installation methods like the
+                    <a href="https://adafruit.github.io/Adafruit_WebSerial_ESPTool/">Adafruit WebSerial Tool</a>
+                    and esptool.py should still work.
                 </p>
             `
         },
         espSerialConnect: {
             closeable: true,
             template: (data) => html`
-                <p>
-                    Make sure your board is plugged into this computer via a Serial connection using a USB Cable.
-                </p>
-                <ul>
-                    <li><em><strong>NOTE:</strong> A lot of people end up using charge-only USB cables and it is very frustrating! Make sure you have a USB cable you know is good for data sync.</em></li>
+                <h3>
+                    Connect to Your Board
+                </h3>
+                <ol>
+                    <li>
+                        <p>
+                            Plug your board into this computer.
+                            <em>Make sure the USB cable is good for data sync, and is not a charge-only cable.</em>
+                        </p>
+                    </li>
+                    <li>
+                        <p>
+                            <strong>Put your board into ROM bootloader mode</strong>,
+                            by holding down the BOOT button (sometimes marked "B0"),
+                            and clicking the RESET button (sometimes marked "RST").
+                            If your board doesn't have a BOOT button, just press RESET.
+                        </p>
+                    </li>
+                    <li>
+                        <p>
+                            <button id="butConnect" type="button" @click=${this.espToolConnectHandler.bind(this)}>Connect</button>
+                            Click this button to open the Web Serial connection menu and choose the serial port for this board.
+                        </p>
+                        <p>
+                            There may be many devices listed, such as your remembered Bluetooth peripherals, anything else plugged into USB, etc.
+                            If you aren't sure which to choose, look for words like "USB", "UART", "JTAG", and "Bridge Controller".
+                            There may be more than one right option depending on your system configuration. Experiment if needed.
+                        </p>
+                    </li>
                 </ul>
-                <p>
-                    <button id="butConnect" type="button" @click=${this.espToolConnectHandler.bind(this)}>Connect</button>
-                    Click this button to open the Web Serial connection menu.
-                </p>
-
-                <p>There may be many devices listed, such as your remembered Bluetooth peripherals, anything else plugged into USB, etc.</p>
-
-                <p>
-                    If you aren't sure which to choose, look for words like "USB", "UART", "JTAG", and "Bridge Controller". There may be more than one right option depending on your system configuration. Experiment if needed.
-                </p>
             `,
             buttons: [this.previousButton, {
                 label: "Next",
@@ -303,7 +325,8 @@ export class CPInstallButton extends InstallButton {
         },
         confirm: {
             template: (data) => html`
-                <p>This will overwrite everything on the ${data.boardName}.</p>
+                <h3>Erase Flash</h3>
+                <p>Now, optionally, erase everything on the ${data.boardName}.</p>
             `,
             buttons: [
                 this.previousButton,
@@ -320,41 +343,53 @@ export class CPInstallButton extends InstallButton {
         bootDriveSelect: {
             closeable: true,
             template: (data) => html`
-                <p>
-                    Please select the ${data.drivename} Drive where the UF2 file will be copied.
-                </p>
-                <p>
-                If you just installed the bootloader, you may need to reset your board. If you already had the bootloader installed,
-                you may need to double press the reset button.
-                </p>
-                <p>
-                    <button id="butSelectBootDrive" type="button" @click=${this.bootDriveSelectHandler.bind(this)}>Select ${data.drivename} Drive</button>
-                </p>
+                <h3>Select the ${data.drivename} Drive</h3>
+                <ol>
+                    <li>
+                        <p>
+                            <strong>Reset your board</strong> if you just installed the UF2 bootloader,
+                            by pressing the RESET button.
+                            If you already had the UF2 bootloader installed,
+                            you may need to double-click the RESET button to start up the UF2 bootloader.
+                        </p>
+                    </li>
+                    <li>
+                        <p>
+                            <button id="butSelectBootDrive" type="button" @click=${this.bootDriveSelectHandler.bind(this)}>Select ${data.drivename} Drive</button>
+                            Select the ${data.drivename} drive where the UF2 file will be copied.
+                        </p>
+                    </li>
+                </ul>
             `,
             buttons: [],
         },
         circuitpyDriveSelect: {
             closeable: true,
             template: (data) => html`
-                <p>
-                    Please select the CIRCUITPY Drive. If you don't see your CIRCUITPY drive, it may be disabled in boot.py or you may have renamed it at some point.
-                </p>
-                <p>
-                    <button id="butSelectCpyDrive" type="button" @click=${this.circuitpyDriveSelectHandler.bind(this)}>Select CIRCUITPY Drive</button>
-                </p>
+                <h3>Select the CIRCUITPY Drive</h3>
+                <ul>
+                    <li>
+                        <p>
+                            <button id="butSelectCpyDrive" type="button" @click=${this.circuitpyDriveSelectHandler.bind(this)}>Select CIRCUITPY Drive</button>
+                            Select the CIRCUITPY Drive.
+                            You may need to wait a few seconds for it to appear.
+                            If you don't see your CIRCUITPY drive, it may be disabled in boot.py or you may have previously renamed it.
+                        </p>
+                    </li>
+                </ul>
             `,
             buttons: [],
         },
         actionWaiting: {
             template: (data) => html`
-                <p class="centered">${data.action}...</p>
+                <p class="centered">${data.action}</p>
                 <div class="loader"><div></div><div></div><div></div><div></div></div>
             `,
             buttons: [],
         },
         actionProgress: {
             template: (data) => html`
-                <p>${data.action}...</p>
+                <p>${data.action}</p>
                 <progress id="stepProgress" max="100" value="${data.percentage}"> ${data.percentage}% </progress>
             `,
             buttons: [],
@@ -362,14 +397,15 @@ export class CPInstallButton extends InstallButton {
         cpSerial: {
             closeable: true,
             template: (data) => html`
-                <p>
-                    The next step is to write your credentials to settings.toml. Make sure your board is running CircuitPython. <strong>If you just installed CircuitPython, you may to reset the board first.</strong>
+                <h3>Reconnect to serial</h3>
+                <ul>
+                    <li>
+                        <button id="butConnect" type="button" @click=${this.cpSerialConnectHandler.bind(this)}>Connect</button>
+                        Click this button to open the Web Serial connection menu.
+                        If it is already connected, you can press it again if you need to select a different port.
+                    </li>
+                </ul>
                 </p>
-                <p>
-                    <button id="butConnect" type="button" @click=${this.cpSerialConnectHandler.bind(this)}>Connect</button>
-                    Click this button to open the Web Serial connection menu. If it is already connected, pressing again will allow you to select a different port.
-                </p>
-
                 <p>${data.serialPortInstructions}</p>
             `,
             buttons: [this.previousButton, {
@@ -383,6 +419,15 @@ export class CPInstallButton extends InstallButton {
         credentials: {
             closeable: true,
             template: (data) => html`
+                <h3>Fill in settings.toml</h3>
+                <p>
+                    This step will write your network credentials to the settings.toml file on CIRCUITPY.
+                    Make sure your board is running CircuitPython.
+                </p>
+                <p>
+                    If you want to skip this step and fill in settings.toml later,
+                    just close this dialog.
+                </p>
                 <fieldset>
                     <div class="field">
                         <label for="circuitpy_wifi_ssid">WiFi Network Name (SSID):</label>
@@ -401,9 +446,9 @@ export class CPInstallButton extends InstallButton {
                         <input id="circuitpy_web_api_port" class="setting-data" type="number" min="0" max="65535" placeholder="Web Workflow API Port" value="${data.api_port}"  />
                     </div>
                     ${data.mass_storage_disabled === true || data.mass_storage_disabled === false ?
-                        html`<div class="field">
-                        <label for="circuitpy_drive"><input id="circuitpy_drive" class="setting" type="checkbox" value="disabled" ${data.mass_storage_disabled ? "checked" : ""} />Disable CIRCUITPY Drive (Required for write access)</label>
-                    </div>` : ''}
+                    html`<div class="field">
+            <label for="circuitpy_drive"><input id="circuitpy_drive" class="setting" type="checkbox" value="disabled" ${data.mass_storage_disabled ? "checked" : ""} />Disable CIRCUITPY Drive (Required for write access)</label>
+            </div>` : ''}
                 </fieldset>
             `,
             buttons: [this.previousButton, {
@@ -478,7 +523,7 @@ export class CPInstallButton extends InstallButton {
     async stepEraseAll() {
         // Display Erase Dialog
         this.showDialog(this.dialogs.actionWaiting, {
-            action: "Erasing Flash",
+            action: "Erasing Flash ...",
         });
         try {
             await this.esploader.eraseFlash();
@@ -538,7 +583,7 @@ export class CPInstallButton extends InstallButton {
         }
         // Display Progress Dialog
         this.showDialog(this.dialogs.actionProgress, {
-            action: `Copying ${this.uf2FileUrl}`,
+            action: `Copying ${this.uf2FileUrl} ...`,
         });
 
         // Do a copy and update progress along the way
@@ -671,7 +716,7 @@ export class CPInstallButton extends InstallButton {
         } catch (err) {
             // It's possible the dialog was also canceled here
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab.");
+            this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab. If installing the bootloader, make sure you are in ROM bootloader mode.");
             return;
         }
 
@@ -848,7 +893,8 @@ export class CPInstallButton extends InstallButton {
         }
 
         // Download the bootloader zip file
-        let [filename, fileBlob] = await this.downloadAndExtract(this.bootloaderUrl, 'tinyuf2.bin');
+        let [filename, extracted_filename, fileBlob] =
+            await this.downloadAndExtract(this.bootloaderUrl, 'tinyuf2.bin');
         const fileContents = await fileBlob.text();
 
         const bootDriveRegex = /B\x00B\x00([A-Z0-9\x00]{11})FAT16/;
@@ -981,7 +1027,7 @@ export class CPInstallButton extends InstallButton {
 
         if (!fileBlob) {
             this.showDialog(this.dialogs.actionProgress, {
-                action: `Downloading ${filename}`
+                action: `Downloading ${filename} ...`
             });
 
             const progressElement = this.currentDialogElement.querySelector("#stepProgress");
@@ -995,11 +1041,12 @@ export class CPInstallButton extends InstallButton {
         }
 
         // If the file is a zip file, unzip and find the file to extract
+        let extracted_filename = null;
         if (filename.endsWith(".zip") && fileToExtract) {
             let foundFile;
             // Update the Progress dialog
             this.showDialog(this.dialogs.actionProgress, {
-                action: `Extracting ${fileToExtract}`
+                action: html`<p>Downloaded ${filename}</p><p>Extracting ${fileToExtract} ...</p>`
             });
 
             // Set that to the current file to flash
@@ -1008,14 +1055,14 @@ export class CPInstallButton extends InstallButton {
                 this.errorMsg(`Unable to find ${fileToExtract} in ${filename}`);
                 return;
             }
-            filename = foundFile;
+            extracted_filename = foundFile;
         }
 
-        return [filename, fileBlob];
+        return [filename, extracted_filename, fileBlob];
     }
 
     async downloadAndInstall(url, fileToExtract = null, cacheFile = false) {
-        let [filename, fileBlob] = await this.downloadAndExtract(url, fileToExtract, cacheFile);
+        let [filename, extracted_filename, fileBlob] = await this.downloadAndExtract(url, fileToExtract, cacheFile);
         const fileArray = [];
 
         const readBlobAsBinaryString = (inputFile) => {
@@ -1024,7 +1071,7 @@ export class CPInstallButton extends InstallButton {
             return new Promise((resolve, reject) => {
                 reader.onerror = () => {
                     reader.abort();
-                    reject(new DOMException("Problem parsing input file."));
+                    reject(new DOMException("Problem parsing input file"));
                 };
 
                 reader.onload = () => {
@@ -1040,7 +1087,9 @@ export class CPInstallButton extends InstallButton {
 
             let lastPercent = 0;
             this.showDialog(this.dialogs.actionProgress, {
-                action: `Flashing ${filename}`
+                action: fileToExtract
+                     ?  html`<p>Downloaded ${filename}</p><p>Extracted ${fileToExtract}</p><p>Flashing (be patient; you will see pauses) ...</p>`
+                      : html`<p>Downloaded ${filename}</p>Flashing (be patient; you will see pauses) ...</p>`
             });
 
             const progressElement = this.currentDialogElement.querySelector("#stepProgress");
@@ -1056,7 +1105,7 @@ export class CPInstallButton extends InstallButton {
                         let percentage = Math.round((written / total) * 100);
                         if (percentage > lastPercent) {
                             progressElement.value = percentage;
-                            this.logMsg(`${percentage}% (${written}/${total})...`);
+                            this.logMsg(`${percentage}% (${written}/${total}) ...`);
                             lastPercent = percentage;
                         }
                     },
@@ -1064,7 +1113,7 @@ export class CPInstallButton extends InstallButton {
                 };
                 await this.esploader.writeFlash(flashOptions);
             } catch (err) {
-                this.errorMsg(`Unable to flash file: ${filename}. Error Message: ${err}`);
+                this.errorMsg(`Unable to flash file: ${fileToExtract}. Error Message: ${err}`);
             }
         }
     }
@@ -1078,10 +1127,14 @@ export class CPInstallButton extends InstallButton {
             return;
         }
 
+        let [filename, extracted_filename, fileBlob] = await this.downloadAndExtract(url);
+        this.showDialog(this.dialogs.actionProgress, {
+            action: html`<p>Downloaded: ${filename}</p><p>Flashing ...</p>`
+        });
+
         const progressElement = this.currentDialogElement.querySelector("#stepProgress");
         progressElement.value = 0;
 
-        let [filename, fileBlob] = await this.downloadAndExtract(url);
         const fileHandle = await dirHandle.getFileHandle(filename, {create: true});
         const writableStream = await fileHandle.createWritable();
         const totalSize = fileBlob.size;
@@ -1093,7 +1146,7 @@ export class CPInstallButton extends InstallButton {
 
             bytesWritten += chunk.size;
             progressElement.value = Math.round(bytesWritten / totalSize * 100);
-            this.logMsg(`${Math.round(bytesWritten / totalSize * 100)}% (${bytesWritten} / ${totalSize}) written...`);
+            this.logMsg(`${Math.round(bytesWritten / totalSize * 100)}% (${bytesWritten} / ${totalSize}) written ...`);
         }
         this.logMsg("File successfully written");
         try {
@@ -1101,7 +1154,7 @@ export class CPInstallButton extends InstallButton {
             await writableStream.close();
             this.logMsg("File successfully closed");
         } catch (err) {
-            this.logMsg("Error closing file, probably due to board reset. Continuing...");
+            this.logMsg("Error closing file, probably due to board reset. Continuing ...");
         }
     }
 
@@ -1163,7 +1216,7 @@ export class CPInstallButton extends InstallButton {
         if (fileContents) {
             return toml.parse(fileContents);
         }
-        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing...");
+        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing ...");
         return {};
     }
 
@@ -1230,7 +1283,7 @@ export class CPInstallButton extends InstallButton {
 
             // Perform a soft restart to avoid losing the connection and get an IP address
             this.showDialog(this.dialogs.actionWaiting, {
-                action: "Waiting for IP Address...",
+                action: "Waiting for IP Address ...",
             });
             await this.repl.softRestart();
             try {
@@ -1270,7 +1323,7 @@ export class CPInstallButton extends InstallButton {
         if (fileContents) {
             return toml.parse(fileContents);
         }
-        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing...");
+        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing ...");
         return {};
     }
 

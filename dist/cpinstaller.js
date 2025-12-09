@@ -1389,7 +1389,7 @@ export class CPInstallButton extends InstallButton {
 
     // This is necessary because chips with native USB will have a CIRCUITPY drive, which blocks writing via REPL
     hasNativeUsb() {
-        if (!this.chipFamily || ("esp32", "esp32c3").includes(this.chipFamily)) {
+        if (!this.chipFamily || this.chipFamily == "esp32" || this.chipFamily.startsWith("esp32c")) {
             return false;
         }
 

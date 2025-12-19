@@ -162,10 +162,10 @@ export class CPInstallButton extends InstallButton {
                }
                this.releaseVersion = releaseInfo.version;
            }
-           if (releaseInfo.uf2file) {
+           if (releaseInfo.uf2file && !this.uf2FileUrl) {
                this.uf2FileUrl = this.updateBinaryUrl(releaseInfo.uf2file);
            }
-           if (releaseInfo.binfile) {
+           if (releaseInfo.binfile && !this.binFileUrl) {
                this.binFileUrl = this.updateBinaryUrl(releaseInfo.binfile);
            }
        }

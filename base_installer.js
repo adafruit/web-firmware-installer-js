@@ -5,7 +5,8 @@
 'use strict';
 import {html, render} from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
 import {asyncAppend} from 'https://cdn.jsdelivr.net/npm/lit-html/directives/async-append/+esm';
-import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.6/bundle.js";
+//import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.6/bundle.js";
+import { ESPLoader, Transport } from "./bundle.js"; // Latest esptool-js as of 2026-03-17
 export const ESP_ROM_BAUD = 115200;
 
 export class InstallButton extends HTMLButtonElement {

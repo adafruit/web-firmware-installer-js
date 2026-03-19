@@ -7,7 +7,6 @@ import { html } from 'https://cdn.jsdelivr.net/npm/lit-html/+esm';
 import { map } from 'https://cdn.jsdelivr.net/npm/lit-html/directives/map/+esm';
 import * as toml from "https://cdn.jsdelivr.net/npm/iarna-toml-esm@3.0.5/+esm"
 import * as zip from "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.6.65/+esm";
-import { default as CryptoJS } from "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/+esm";
 import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@3.2.1/repl.js';
 import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
 
@@ -1065,7 +1064,7 @@ export class CPInstallButton extends InstallButton {
         let [filename, extracted_filename, fileBlob] = await this.downloadAndExtract(url, fileToExtract, cacheFile);
         const fileArray = [];
 
-        const readBlobAsBinaryString = (inputFile) => {
+        const readBlobAsArrayBuffer = (inputFile) => {
             const reader = new FileReader();
 
             return new Promise((resolve, reject) => {
@@ -1077,13 +1076,13 @@ export class CPInstallButton extends InstallButton {
                 reader.onload = () => {
                     resolve(reader.result);
                 };
-                reader.readAsBinaryString(inputFile);
+                reader.readAsArrayBuffer(inputFile);
             });
         };
 
         // Update the Progress dialog
         if (fileBlob) {
-            fileArray.push({ data: await readBlobAsBinaryString(fileBlob), address: 0 });
+            fileArray.push({ data: new Uint8Array(await readBlobAsArrayBuffer(fileBlob)), address: 0 });
 
             let lastPercent = 0;
             this.showDialog(this.dialogs.actionProgress, {
@@ -1109,7 +1108,6 @@ export class CPInstallButton extends InstallButton {
                             lastPercent = percentage;
                         }
                     },
-                    calculateMD5Hash: (image) => CryptoJS.MD5(CryptoJS.enc.Latin1.parse(image)),
                 };
                 await this.esploader.writeFlash(flashOptions);
             } catch (err) {

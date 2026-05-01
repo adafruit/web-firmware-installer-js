@@ -459,6 +459,7 @@ export class CPInstallButton extends InstallButton {
             closeable: true,
             template: (data) => html`
                 <p>Successfully Completed</p>
+                <p>If your device doesn't reboot automatically press the reset button once.</p>
                 ${data.ip ?
                     html`<p>
                         You can edit files by going to <a href="http://${data.ip}/code/">http://${data.ip}/code/</a>.

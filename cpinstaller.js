@@ -897,7 +897,7 @@ export class CPInstallButton extends InstallButton {
             }
             // Disconnection before complete
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.errorMsg("Oops, we lost the connection to your board before the install finished. Check the USB cable and click Connect again. If the browser gets stuck, refresh the page and try once more.")
+            this.errorMsg("Oops, we lost connection to your board before completing the install. Please check your USB connection and click Connect again. Refresh the browser if it becomes unresponsive.")
         }
     }
 

@@ -523,7 +523,7 @@ export class CPInstallButton extends InstallButton {
     async stepEraseAll() {
         // Display Erase Dialog
         this.showDialog(this.dialogs.actionWaiting, {
-            action: "Erasing Flash ...",
+            action: "Erasing Flash...",
         });
         try {
             await this.esploader.eraseFlash();
@@ -541,6 +541,13 @@ export class CPInstallButton extends InstallButton {
         }
 
         await this.downloadAndInstall(this.binFileUrl);
+        // The MD5 verification step inside downloadAndInstall reads the entire
+        // flash back, and stepSetupRepl below does a DTR/RTS reset + REPL wake.
+        // Both can take several seconds, so swap to a waiting indicator so the
+        // user doesn't think the wizard is stuck on "Flashing 100%".
+        this.showDialog(this.dialogs.actionWaiting, {
+            action: "Resetting the board and opening the REPL...",
+        });
         await this.espHardReset();
         await this.nextStep();
     }
@@ -583,7 +590,7 @@ export class CPInstallButton extends InstallButton {
         }
         // Display Progress Dialog
         this.showDialog(this.dialogs.actionProgress, {
-            action: `Copying ${this.uf2FileUrl} ...`,
+            action: `Copying ${this.uf2FileUrl}...`,
         });
 
         // Do a copy and update progress along the way
@@ -594,11 +601,112 @@ export class CPInstallButton extends InstallButton {
     }
 
     async stepSetupRepl() {
-        // TODO: Try and reuse the existing connection so user doesn't need to select it again
-        /*if (this.device) {
-            this.replSerialDevice = this.device;
-            await this.setupRepl();
-        }*/
+        // Don't close the SerialPort between flash and REPL. On Pi 5 + CP2104
+        // (and likely other USB-serial bridges) port.close() can hang
+        // indefinitely after esptool-js's transport.disconnect(), and even
+        // after a successful reopen the device often goes silent. Instead,
+        // release esptool-js's hold on the port (reader/writer locks) WITHOUT
+        // closing it, then reuse the same open port directly for REPL. The
+        // port is already at 115200 baud, which is what CircuitPython REPL
+        // uses. (Issue #22)
+        const reusablePort = (this.transport && this.transport.device) || this.device;
+
+        if (reusablePort) {
+            try {
+                // Release esptool-js's reader/writer locks without closing.
+                if (this.transport) {
+                    try {
+                        if (this.transport.reader) {
+                            try { await this.transport.reader.cancel(); } catch (e) { /* ignore */ }
+                            try { this.transport.reader.releaseLock(); } catch (e) { /* ignore */ }
+                            this.transport.reader = undefined;
+                        }
+                        if (this.transport.writer) {
+                            try { this.transport.writer.releaseLock(); } catch (e) { /* ignore */ }
+                            this.transport.writer = undefined;
+                        }
+                    } catch (e) {
+                        console.warn("Could not release esptool-js locks (continuing):", e);
+                    }
+                    // Drop our refs to the transport but DO NOT call its
+                    // disconnect() method (which would close the port).
+                    this.transport = null;
+                    this.device = null;
+                    this.chip = null;
+                    this.updateEspConnected(this.connectionStates.DISCONNECTED);
+                }
+
+                this.replSerialDevice = reusablePort;
+
+                // The port is currently at the flash baud (e.g. 921600)
+                // and Web Serial doesn't support changing baud on an open
+                // port, so we must close and reopen at REPL baud (115200).
+                // close() can hang on Pi/CP2104 so we race it with a timeout
+                // and continue regardless.
+                try {
+                    await Promise.race([
+                        reusablePort.close(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("close() timeout")), 2500)),
+                    ]);
+                } catch (err) {
+                    // close() can hang on CP2104; we proceed regardless.
+                }
+                await new Promise((r) => setTimeout(r, 400));
+
+                // Reopen at REPL baud. May still report InvalidStateError
+                // if the platform is mid-close; retry with backoff.
+                let opened = false;
+                const openErrors = [];
+                for (let attempt = 0; attempt < 8 && !opened; attempt++) {
+                    try {
+                        await Promise.race([
+                            reusablePort.open({baudRate: ESP_ROM_BAUD}),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("open() timeout")), 3000)),
+                        ]);
+                        opened = true;
+                    } catch (err) {
+                        openErrors.push(err && err.message ? err.message : String(err));
+                        if (err && err.name === "InvalidStateError") {
+                            await new Promise((r) => setTimeout(r, 400));
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+                if (!opened) {
+                    throw new Error(`Could not reopen port at REPL baud (attempts: ${openErrors.join(" | ")})`);
+                }
+
+                // Toggle DTR/RTS to reset the chip into normal boot.
+                try {
+                    await reusablePort.setSignals({dataTerminalReady: false, requestToSend: true});
+                    await new Promise((r) => setTimeout(r, 100));
+                    await reusablePort.setSignals({dataTerminalReady: false, requestToSend: false});
+                    await new Promise((r) => setTimeout(r, 500));
+                } catch (err) {
+                    console.warn("setSignals failed (continuing):", err);
+                }
+
+                await this.setupRepl();
+
+                // Give CP time to boot, then send extra Ctrl-C to interrupt
+                // code.py / safe mode prompts and force a fresh ">>>".
+                for (let i = 0; i < 4; i++) {
+                    await new Promise((r) => setTimeout(r, 750));
+                    try {
+                        await this.serialTransmit("\x03");
+                    } catch (e) {
+                        console.warn("follow-up Ctrl-C failed:", e);
+                    }
+                }
+                await this.nextStep();
+                return;
+            } catch (err) {
+                console.warn("Could not reuse already-open port; falling back to manual reconnect:", err);
+                this.replSerialDevice = null;
+            }
+        }
+
         const serialPortName = await this.getSerialPortName();
         let serialPortInstructions ="There may be several devices listed. If you aren't sure which to choose, look for one that includes the name of your microcontroller.";
         if (serialPortName) {
@@ -610,9 +718,13 @@ export class CPInstallButton extends InstallButton {
     }
 
     async stepCredentials() {
+        // Talking to the board over the REPL can take several seconds while
+        // we read settings.toml; show a spinner so the UI doesn't appear hung.
+        this.showDialog(this.dialogs.actionWaiting, {
+            action: "Reading current settings from the board...",
+        });
         // We may want to see if the board has previously been set up and fill in any values from settings.toml and boot.py
         this.tomlSettings = await this.getCurrentSettings();
-        console.log(this.tomlSettings);
         const parameters = {
             wifi_ssid: this.getSetting('CIRCUITPY_WIFI_SSID'),
             wifi_password: this.getSetting('CIRCUITPY_WIFI_PASSWORD'),
@@ -634,9 +746,15 @@ export class CPInstallButton extends InstallButton {
     async stepSuccess() {
         let deviceHostInfo = {};
         if (this.repl) {
+            // After writeSettings the board is rebooting and we have to wait
+            // for the next REPL prompt + read network info; surface that as
+            // a waiting state instead of leaving the form dialog up.
+            this.showDialog(this.dialogs.actionWaiting, {
+                action: "Waiting for the board to come back online...",
+            });
             await this.repl.waitForPrompt();
             // If we were setting up Web Workflow, we may want to provide a link to code.circuitpython.org
-            if (this.currentFlow || this.currentFlow.steps.includes(this.stepCredentials)) {
+            if (this.currentFlow && this.currentFlow.steps.includes(this.stepCredentials)) {
                 deviceHostInfo = await this.getDeviceHostInfo();
             }
         }
@@ -755,28 +873,63 @@ export class CPInstallButton extends InstallButton {
     }
 
     async cpSerialConnectHandler(e) {
-        // Disconnect from the ESP Tool if Connected
-        await this.espDisconnect();
-
-        await this.onReplDisconnected(e);
-
-        // Connect to the Serial Port and interact with the REPL
-        try {
-            this.replSerialDevice = await navigator.serial.requestPort();
-        } catch (e) {
-            // Likely the user cancelled the dialog
+        // Guard against re-entrant invocation. The user often clicks the
+        // Connect button a second time when the first click appears to do
+        // nothing (in reality we're still awaiting espDisconnect() and the
+        // browser's port-chooser is loading). A second call into this handler
+        // re-enters transport.disconnect() while the first close is still in
+        // flight and throws "InvalidStateError: A call to close() is already
+        // in progress". (Issue #22)
+        if (this._cpSerialConnectInFlight) {
             return;
         }
+        this._cpSerialConnectInFlight = true;
 
-        try {
-            await this.replSerialDevice.open({baudRate: ESP_ROM_BAUD});
-        } catch (e) {
-            console.error("Error. Unable to open Serial Port. Make sure it isn't already in use in another tab or application.");
+        const butConnect = this.currentDialogElement
+            ? this.currentDialogElement.querySelector("#butConnect")
+            : null;
+        const butConnectOriginalText = butConnect ? butConnect.innerText : null;
+        if (butConnect) {
+            butConnect.disabled = true;
+            butConnect.innerText = "Connecting…";
         }
 
-        await this.setupRepl();
+        try {
+            // Disconnect from the ESP Tool if Connected
+            await this.espDisconnect();
 
-        this.nextStep();
+            await this.onReplDisconnected(e);
+
+            // Connect to the Serial Port and interact with the REPL
+            try {
+                this.replSerialDevice = await navigator.serial.requestPort();
+            } catch (err) {
+                // Likely the user cancelled the chooser dialog
+                return;
+            }
+
+            try {
+                await this.replSerialDevice.open({baudRate: ESP_ROM_BAUD});
+            } catch (err) {
+                console.error("Error. Unable to open Serial Port. Make sure it isn't already in use in another tab or application.");
+                // Drop the unusable port so a retry doesn't try to reuse it
+                this.replSerialDevice = null;
+                return;
+            }
+
+            await this.setupRepl();
+
+            this.nextStep();
+        } finally {
+            this._cpSerialConnectInFlight = false;
+            if (butConnect) {
+                butConnect.disabled = false;
+                // Let the onUpdate handler reflect the new state on next render.
+                butConnect.innerText = !!this.replSerialDevice
+                    ? "Connected"
+                    : (butConnectOriginalText || "Connect");
+            }
+        }
     }
 
     async setupRepl() {
@@ -789,6 +942,7 @@ export class CPInstallButton extends InstallButton {
             // Start the read loop
             this._readLoopPromise = this._readSerialLoop().catch(
                 async function(error) {
+                    console.warn("REPL read loop errored:", error);
                     await this.onReplDisconnected();
                 }.bind(this)
             );
@@ -796,7 +950,30 @@ export class CPInstallButton extends InstallButton {
             if (this.replSerialDevice.writable) {
                 this.writer = this.replSerialDevice.writable.getWriter();
                 await this.writer.ready;
+            } else {
+                console.warn("setupRepl: no writable stream available");
             }
+
+            // After a fresh flash + reset, CircuitPython has already printed
+            // its ">>> " prompt to the serial line BEFORE our read loop
+            // started, so nobody saw it. Send Ctrl-C to interrupt anything
+            // that may be running (e.g. code.py looping at boot) and force
+            // CircuitPython to print a fresh prompt that subsequent steps
+            // (stepCredentials, stepSuccess) can latch onto via
+            // repl.waitForPrompt(). CP may still be mid-boot at this point,
+            // so we space the kicks out to give it a chance to be ready to
+            // handle the interrupt. (Issue #22)
+            try {
+                await this.serialTransmit("\r\n");
+                await new Promise((r) => setTimeout(r, 300));
+                await this.serialTransmit("\x03");
+                await new Promise((r) => setTimeout(r, 300));
+                await this.serialTransmit("\x03\r\n");
+            } catch (err) {
+                console.warn("REPL wake-up Ctrl-C failed; continuing anyway:", err);
+            }
+        } else {
+            console.warn("setupRepl called with no replSerialDevice");
         }
     }
 
@@ -1027,7 +1204,7 @@ export class CPInstallButton extends InstallButton {
 
         if (!fileBlob) {
             this.showDialog(this.dialogs.actionProgress, {
-                action: `Downloading ${filename} ...`
+                action: `Downloading ${filename}...`
             });
 
             const progressElement = this.currentDialogElement.querySelector("#stepProgress");
@@ -1046,7 +1223,7 @@ export class CPInstallButton extends InstallButton {
             let foundFile;
             // Update the Progress dialog
             this.showDialog(this.dialogs.actionProgress, {
-                action: html`<p>Downloaded ${filename}</p><p>Extracting ${fileToExtract} ...</p>`
+                action: html`<p>Downloaded ${filename}</p><p>Extracting ${fileToExtract}...</p>`
             });
 
             // Set that to the current file to flash
@@ -1088,8 +1265,8 @@ export class CPInstallButton extends InstallButton {
             let lastPercent = 0;
             this.showDialog(this.dialogs.actionProgress, {
                 action: fileToExtract
-                     ?  html`<p>Downloaded ${filename}</p><p>Extracted ${fileToExtract}</p><p>Flashing (be patient; you will see pauses) ...</p>`
-                      : html`<p>Downloaded ${filename}</p>Flashing (be patient; you will see pauses) ...</p>`
+                     ?  html`<p>Downloaded ${filename}</p><p>Extracted ${fileToExtract}</p><p>Flashing (be patient; you will see pauses)...</p>`
+                      : html`<p>Downloaded ${filename}</p>Flashing (be patient; you will see pauses)...</p>`
             });
 
             const progressElement = this.currentDialogElement.querySelector("#stepProgress");
@@ -1105,14 +1282,35 @@ export class CPInstallButton extends InstallButton {
                         let percentage = Math.round((written / total) * 100);
                         if (percentage > lastPercent) {
                             progressElement.value = percentage;
-                            this.logMsg(`${percentage}% (${written}/${total}) ...`);
+                            this.logMsg(`${percentage}% (${written}/${total})...`);
                             lastPercent = percentage;
                         }
+                    },
+                    // Enable post-flash MD5 verification. Without this,
+                    // esptool-js skips its readback hash check, which can
+                    // mask flash-write corruption on some USB-serial
+                    // bridges (e.g. Pi 5 + CP2104, see issue #22).
+                    //
+                    // The host page is responsible for loading a hashing
+                    // library; CryptoJS is recommended. If no compatible
+                    // library is present we return null and esptool-js
+                    // simply skips verification (matching the previous
+                    // behavior).
+                    calculateMD5Hash: (image) => {
+                        if (typeof CryptoJS !== "undefined"
+                            && CryptoJS.MD5
+                            && CryptoJS.lib && CryptoJS.lib.WordArray
+                            && CryptoJS.enc && CryptoJS.enc.Hex) {
+                            const wordArray = CryptoJS.lib.WordArray.create(image);
+                            return CryptoJS.MD5(wordArray).toString(CryptoJS.enc.Hex);
+                        }
+                        return null;
                     },
                 };
                 await this.esploader.writeFlash(flashOptions);
             } catch (err) {
                 this.errorMsg(`Unable to flash file: ${fileToExtract}. Error Message: ${err}`);
+                throw err;  // don't proceed to setup REPL on a bad flash
             }
         }
     }
@@ -1128,7 +1326,7 @@ export class CPInstallButton extends InstallButton {
 
         let [filename, extracted_filename, fileBlob] = await this.downloadAndExtract(url);
         this.showDialog(this.dialogs.actionProgress, {
-            action: html`<p>Downloaded: ${filename}</p><p>Flashing ...</p>`
+            action: html`<p>Downloaded: ${filename}</p><p>Flashing...</p>`
         });
 
         const progressElement = this.currentDialogElement.querySelector("#stepProgress");
@@ -1145,7 +1343,7 @@ export class CPInstallButton extends InstallButton {
 
             bytesWritten += chunk.size;
             progressElement.value = Math.round(bytesWritten / totalSize * 100);
-            this.logMsg(`${Math.round(bytesWritten / totalSize * 100)}% (${bytesWritten} / ${totalSize}) written ...`);
+            this.logMsg(`${Math.round(bytesWritten / totalSize * 100)}% (${bytesWritten} / ${totalSize}) written...`);
         }
         this.logMsg("File successfully written");
         try {
@@ -1153,7 +1351,7 @@ export class CPInstallButton extends InstallButton {
             await writableStream.close();
             this.logMsg("File successfully closed");
         } catch (err) {
-            this.logMsg("Error closing file, probably due to board reset. Continuing ...");
+            this.logMsg("Error closing file, probably due to board reset. Continuing...");
         }
     }
 
@@ -1182,6 +1380,12 @@ export class CPInstallButton extends InstallButton {
         this.saveSetting('CIRCUITPY_WEB_API_PASSWORD');
         this.saveSetting('CIRCUITPY_WEB_API_PORT');
 
+        // writeSettings issues several runCode round-trips over the REPL
+        // which can take a noticeable amount of time. Show a spinner so the
+        // wizard doesn't look frozen.
+        this.showDialog(this.dialogs.actionWaiting, {
+            action: "Writing settings to the board...",
+        });
         await this.writeSettings(this.tomlSettings);
         if (this.hasNativeUsb()) {
             //this.setBootDisabled(true);
@@ -1215,7 +1419,7 @@ export class CPInstallButton extends InstallButton {
         if (fileContents) {
             return toml.parse(fileContents);
         }
-        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing ...");
+        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing...");
         return {};
     }
 
@@ -1282,7 +1486,7 @@ export class CPInstallButton extends InstallButton {
 
             // Perform a soft restart to avoid losing the connection and get an IP address
             this.showDialog(this.dialogs.actionWaiting, {
-                action: "Waiting for IP Address ...",
+                action: "Waiting for IP Address...",
             });
             await this.repl.softRestart();
             try {
@@ -1322,7 +1526,7 @@ export class CPInstallButton extends InstallButton {
         if (fileContents) {
             return toml.parse(fileContents);
         }
-        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing ...");
+        this.logMsg("Unable to read settings.toml from CircuitPython. It may not exist. Continuing...");
         return {};
     }
 

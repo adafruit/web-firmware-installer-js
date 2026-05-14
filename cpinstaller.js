@@ -200,7 +200,13 @@ export class CPInstallButton extends InstallButton {
     flows = {
         uf2FullProgram: {  // Native USB Install
             label: `Full CircuitPython [version] Install`,
-            steps: [this.stepWelcome, this.stepSerialConnect, this.stepConfirm, this.stepEraseAll, this.stepBootloader, this.stepSelectBootDrive, this.stepCopyUf2, this.stepSelectCpyDrive, this.stepCredentials, this.stepSuccess],
+            // stepFsapiCheck sits right after the welcome dialog so the
+            // user sees the normal welcome first, then immediately gets
+            // the "your browser can't finish automatically" dialog if
+            // they're on Firefox. The "Continue Manually" path swaps
+            // the drive-picker tail of this flow for the manual
+            // variants via continueManuallyHandler. (Issue #24)
+            steps: [this.stepWelcome, this.stepFsapiCheck, this.stepSerialConnect, this.stepConfirm, this.stepEraseAll, this.stepBootloader, this.stepSelectBootDrive, this.stepCopyUf2, this.stepSelectCpyDrive, this.stepCredentials, this.stepSuccess],
             isEnabled: async () => { return this.hasNativeUsb() && !!this.bootloaderUrl && !!this.uf2FileUrl },
         },
         binFullProgram: {  // Non-native USB Install (Once we have boot drive disable working, we can remove hasNativeUsb() check)
@@ -211,7 +217,14 @@ export class CPInstallButton extends InstallButton {
         uf2Only: { // Upgrade when Bootloader is already installer
             label: `Install CircuitPython [version] UF2 Only`,
             steps: [this.stepWelcome, this.stepSelectBootDrive, this.stepCopyUf2, this.stepSelectCpyDrive, this.stepCredentials, this.stepSuccess],
-            isEnabled: async () => { return this.hasNativeUsb() && !!this.uf2FileUrl },
+            // Every step in this flow needs the File System Access API:
+            // we never flash anything ourselves, we just pick the BOOT
+            // drive, copy the UF2 onto it, then pick CIRCUITPY and write
+            // settings.toml. With no FSAPI there's literally nothing the
+            // installer can do, so hide the flow on Firefox rather than
+            // present a button that opens a dialog and silently fails.
+            // (Issue #24)
+            isEnabled: async () => { return this.hasNativeUsb() && !!this.uf2FileUrl && this.hasFileSystemAccess },
         },
         binOnly: {
             label: `Install CircuitPython [version] Bin Only`,
@@ -231,7 +244,13 @@ export class CPInstallButton extends InstallButton {
         credentialsOnlyDrive: { // Update via CIRCUITPY Drive
             label: "Update WiFi credentials",
             steps: [this.stepWelcome, this.stepSelectCpyDrive, this.stepCredentials, this.stepSuccess],
-            isEnabled: async () => { return this.hasNativeUsb() },
+            // Drive-based credential update needs to pick the CIRCUITPY
+            // drive and write settings.toml. With no FSAPI we can't do
+            // either, so hide on Firefox. Native-USB users on Firefox
+            // hit the no-flows menu state; non-native-USB users still
+            // get credentialsOnlyRepl (which talks over Web Serial and
+            // doesn't need FSAPI at all). (Issue #24)
+            isEnabled: async () => { return this.hasNativeUsb() && this.hasFileSystemAccess },
         }
     }
 
@@ -322,6 +341,36 @@ export class CPInstallButton extends InstallButton {
                 onUpdate: async (e) => { this.currentDialogElement.querySelector("#butConnect").innerText = this.connected; },
             }],
         },
+        // Shown when the user picks a serial port that's clearly not
+        // an ESP32 ROM bootloader (e.g. TinyUF2 CDC, a running
+        // CircuitPython console). This is a user-recoverable hiccup,
+        // not an install failure -- they just need to put the board
+        // into ROM bootloader mode and try again -- so we show a
+        // dialog with a single Continue button that drops them back
+        // on the serial-connect dialog of whichever flow they're in.
+        // (Issue #20 / #24)
+        notRomBootloader: {
+            closeable: true,
+            template: (data) => html`
+                <h3>Not in ROM Bootloader mode</h3>
+                ${(data && data.message ? data.message.split("\n\n") : [])
+                    .filter((p) => p.trim().length > 0)
+                    .map((p) => html`<p>${p}</p>`)}
+            `,
+            buttons: [{
+                label: "OK",
+                onClick: async (e) => {
+                    this.closeDialog();
+                    // Re-run whatever step we're currently sitting on
+                    // (which is the flow's serial-connect step). This
+                    // re-shows the Connect to Your Board dialog so
+                    // the user can pick the right port this time.
+                    if (this.currentFlow && typeof this.currentFlow.steps[this.currentStep] === "function") {
+                        await this.currentFlow.steps[this.currentStep].bind(this)();
+                    }
+                },
+            }],
+        },
         confirm: {
             template: (data) => html`
                 <h3>Erase Flash</h3>
@@ -338,6 +387,186 @@ export class CPInstallButton extends InstallButton {
                     onClick: this.nextStep,
                 }
             ],
+        },
+        // Shown by stepWelcome (in place of the normal welcome dialog)
+        // when the browser doesn't expose window.showDirectoryPicker
+        // (currently Firefox on every platform). User picks between
+        // switching browsers for the automated path, or staying on
+        // Firefox and copying the UF2 manually via
+        // continueManuallyHandler. Shown up front so the user finds out
+        // BEFORE clicking through Erase + Bootloader. (Issue #24)
+        fsapiUnavailable: {
+            closeable: true,
+            template: (data) => html`
+                <h3>Your browser can't finish automatically</h3>
+                <p>
+                    Your browser doesn't support the
+                    <strong>FileSystem API</strong>, which this installer
+                    normally uses to copy the CircuitPython UF2 file onto
+                    your board's bootloader drive and to write your WiFi
+                    settings to <code>settings.toml</code>.
+                </p>
+                <p>You have a few options:</p>
+                <ul>
+                    <li>
+                        <strong>Use another browser.</strong>
+                        Close this dialog, then re-open this page in
+                        Chrome, Edge, or Opera (version 89 or newer).
+                        Those browsers support the FileSystem API and
+                        will copy CircuitPython and set up WiFi for you
+                        automatically.
+                    </li>
+                    <li>
+                        <strong>Continue here and copy manually.</strong>
+                        We'll guide you through downloading the
+                        CircuitPython UF2 file and dragging it onto your
+                        board's bootloader drive yourself. WiFi setup
+                        can't be automated this way, but we'll show you
+                        how to edit <code>settings.toml</code> by hand
+                        once your board is running CircuitPython.
+                    </li>
+                    ${data && data.binAvailable ? html`
+                    <li>
+                        <strong>Install the .bin instead.</strong>
+                        We can flash CircuitPython directly over USB
+                        without using the FileSystem API at all.
+                        <em>However</em>, this skips installing the UF2
+                        bootloader, so you won't have the drag-and-drop
+                        BOOT drive for future firmware updates &mdash;
+                        you'll need to come back here (or use a browser
+                        with the FileSystem API) every time you want to
+                        change CircuitPython versions.
+                    </li>
+                    ` : html``}
+                </ul>
+            `,
+            buttons: [{
+                label: "Use Another Browser",
+                onClick: async (e) => {
+                    this.closeDialog();
+                },
+            }, {
+                label: "Install .bin Instead",
+                onClick: this.installBinInsteadHandler,
+                // Show whenever a .bin firmware file is configured for
+                // this board. We deliberately bypass
+                // binFullProgram.isEnabled() (which gates on
+                // !hasNativeUsb()) because this dialog is the user's
+                // informed-consent escape hatch: they understand the
+                // tradeoff (no UF2 bootloader) and want to flash
+                // CircuitPython anyway. The menu still uses
+                // isEnabled() so this option stays hidden from normal
+                // browsing. Display set via onUpdate because
+                // base_installer's isEnabled hook only toggles
+                // .disabled and we want the button gone, not greyed.
+                onUpdate: async (e) => {
+                    e.target.style.display = !!this.binFileUrl ? "" : "none";
+                },
+            }, {
+                label: "Continue Manually",
+                onClick: this.continueManuallyHandler,
+            }],
+        },
+        // Manual UF2 copy step shown to Firefox users who chose
+        // "Continue Manually" in fsapiUnavailable. We hand them a
+        // direct download link to the UF2 file (we already have
+        // uf2FileUrl) and tell them how to drag it onto the BOOT
+        // drive. Advance is on a "Next" button rather than a folder
+        // picker, since we can't programmatically observe the copy.
+        manualBootCopy: {
+            closeable: true,
+            template: (data) => html`
+                <h3>Copy CircuitPython onto the ${data.drivename} drive</h3>
+                <ol>
+                    <li>
+                        <p>
+                            <strong>Reset your board.</strong> Press the
+                            RESET button once. A new drive named
+                            <code>${data.drivename}</code> should appear
+                            on your computer in a few seconds.
+                        </p>
+                    </li>
+                    <li>
+                        <p>
+                            <strong>Download the CircuitPython UF2 file.</strong>
+                            <a href="${data.uf2FileUrl}" download target="_blank" rel="noopener">
+                                Download <code>${data.uf2FileName}</code>
+                            </a>
+                        </p>
+                    </li>
+                    <li>
+                        <p>
+                            <strong>Drag the downloaded UF2 file onto the
+                            <code>${data.drivename}</code> drive.</strong>
+                            The drive will disappear when the copy is
+                            finished and the board reboots into
+                            CircuitPython.
+                        </p>
+                    </li>
+                </ol>
+                <p>
+                    Click <strong>Next</strong> once you've dragged the
+                    file onto the drive.
+                </p>
+            `,
+            buttons: [this.previousButton, this.nextButton],
+        },
+        // Lightweight "waiting for CIRCUITPY" beat between the manual
+        // copy and the success screen. Pure-instructional since we
+        // can't actually detect the drive without FSAPI.
+        manualCircuitPyWait: {
+            closeable: true,
+            template: (data) => html`
+                <h3>Waiting for CIRCUITPY</h3>
+                <p>
+                    Once your board finishes copying CircuitPython, a new
+                    drive named <code>CIRCUITPY</code> should appear in a
+                    few seconds.
+                </p>
+                <p>
+                    If it doesn't appear, the drive may have been renamed
+                    or disabled in <code>boot.py</code> on a previous
+                    install. You can still continue &mdash; CircuitPython
+                    is running on your board either way.
+                </p>
+                <p>
+                    Click <strong>Next</strong> when you're ready to wrap
+                    up.
+                </p>
+            `,
+            buttons: [this.previousButton, this.nextButton],
+        },
+        // Manual-mode success dialog. Replaces stepSuccess for the
+        // Firefox manual path since we never set up WiFi and have no
+        // ip / hostname info to show. Walks the user through editing
+        // settings.toml themselves so they're not left wondering.
+        manualSuccess: {
+            closeable: true,
+            template: (data) => html`
+                <h3>CircuitPython is installed!</h3>
+                <p>
+                    Your board should now be running CircuitPython. If it
+                    doesn't reboot automatically, press the RESET button
+                    once.
+                </p>
+                <p>
+                    <strong>To set up WiFi:</strong> open the
+                    <code>CIRCUITPY</code> drive and create or edit a
+                    file called <code>settings.toml</code> in the root.
+                    Add lines like:
+                </p>
+                <pre style="white-space: pre; font-family: monospace;">CIRCUITPY_WIFI_SSID = "your-network"
+CIRCUITPY_WIFI_PASSWORD = "your-password"
+CIRCUITPY_WEB_API_PASSWORD = "passw0rd"
+CIRCUITPY_WEB_API_PORT = 80</pre>
+                <p>
+                    Save the file, then press RESET on your board. Once
+                    the board reconnects to WiFi you can edit code in a
+                    browser via the
+                    <a href="https://code.circuitpython.org/" target="_blank" rel="noopener">CircuitPython web code editor</a>.
+                </p>
+            `,
+            buttons: [this.closeButton],
         },
         bootDriveSelect: {
             closeable: true,
@@ -529,8 +758,64 @@ export class CPInstallButton extends InstallButton {
     ////////// STEP FUNCTIONS //////////
 
     async stepWelcome() {
+        // continueManuallyHandler mutates currentFlow.steps in place to
+        // graft on the manual sub-flow. Since runFlow doesn't clone the
+        // step array, that mutation would persist across runs and break
+        // a subsequent automated run on Chrome. Snapshot the original
+        // step list the first time we see each flow and restore it on
+        // every welcome step so each run starts fresh. (Issue #24)
+        if (this.currentFlow) {
+            if (!this.currentFlow._originalSteps) {
+                this.currentFlow._originalSteps = this.currentFlow.steps.slice();
+            } else {
+                this.currentFlow.steps = this.currentFlow._originalSteps.slice();
+            }
+            // If installBinInsteadHandler set this flag on the bin flow
+            // and we're now running stepWelcome via Previous from
+            // stepSerialConnect, redirect to uf2FullProgram's welcome
+            // so the user lands back where they started. Clear the
+            // flag whether we redirect or not so that a subsequent
+            // fresh entry to the bin flow doesn't accidentally bounce.
+            if (this.currentFlow._returnToUf2Welcome) {
+                this.currentFlow._returnToUf2Welcome = false;
+                const uf2Flow = this.flows.uf2FullProgram;
+                if (uf2Flow) {
+                    this.currentFlow = uf2Flow;
+                    this.currentStep = 0;
+                    await this.currentFlow.steps[this.currentStep].bind(this)();
+                    return;
+                }
+            }
+        }
         // Display Welcome Dialog
         this.showDialog(this.dialogs.welcome, {boardName: this.boardName});
+    }
+
+    // FSAPI capability gate for uf2FullProgram, run immediately after
+    // stepWelcome. On browsers with the File System Access API this is
+    // a no-op pass-through; on Firefox (no FSAPI) it pops the
+    // fsapiUnavailable dialog and stops here. The user chooses Use
+    // Another Browser / Install .bin Instead / Continue Manually. The
+    // bin-based flows and the FSAPI-only flows don't include this
+    // step: bin flows don't touch FSAPI, and the FSAPI-only flows are
+    // already hidden from the menu when the API is missing. (Issue #24)
+    async stepFsapiCheck() {
+        if (this.hasFileSystemAccess) {
+            await this.nextStep();
+            return;
+        }
+        this.logMsg("FileSystem API not available; offering manual UF2 copy fallback.");
+        // Tell the dialog whether the .bin fallback is actually
+        // available for this board (i.e. a .bin URL is configured), so
+        // it can include the .bin bullet and button. We bypass
+        // binFullProgram.isEnabled() on purpose here because this
+        // dialog is the user's informed-consent path: even native-USB
+        // boards (which the menu would normally route through the UF2
+        // flow) get the option to flash the raw .bin when their
+        // browser can't drive the UF2 path. Button visibility is
+        // gated by the same predicate via an onUpdate hook. (Issue #24)
+        const binAvailable = !!this.binFileUrl;
+        this.showDialog(this.dialogs.fsapiUnavailable, { binAvailable });
     }
 
     async stepSerialConnect() {
@@ -584,6 +869,46 @@ export class CPInstallButton extends InstallButton {
         // Display Bootloader Dialog
         await this.downloadAndInstall(this.bootloaderUrl, 'combined.bin', true);
         await this.nextStep();
+    }
+
+    // Manual-copy variant of stepSelectBootDrive + stepCopyUf2 combined.
+    // Hands the user a download link for the UF2 file and instructions
+    // for dragging it onto the BOOT drive themselves, since we can't
+    // open the drive programmatically without FSAPI.
+    async stepManualBootCopy() {
+        const bootloaderVolume = await this.getBootDriveName();
+        // Pull a friendly filename out of the URL so the download
+        // button shows something more useful than just "Download".
+        let uf2FileName = "CircuitPython.uf2";
+        try {
+            const urlPath = new URL(this.uf2FileUrl, window.location.href).pathname;
+            const tail = urlPath.split("/").filter(Boolean).pop();
+            if (tail) {
+                uf2FileName = tail;
+            }
+        } catch (e) {
+            // Fall back to the default if URL parsing fails for any
+            // reason; we'd rather render a generic name than a broken
+            // dialog.
+        }
+        this.showDialog(this.dialogs.manualBootCopy, {
+            drivename: bootloaderVolume ? bootloaderVolume : "Bootloader",
+            uf2FileUrl: this.uf2FileUrl,
+            uf2FileName: uf2FileName,
+        });
+    }
+
+    // Manual-copy variant of the post-copy wait. Pure instructional;
+    // user clicks Next when they're ready to move on.
+    async stepManualCircuitPyWait() {
+        this.showDialog(this.dialogs.manualCircuitPyWait);
+    }
+
+    // Manual-copy success page. Tells the user how to set up WiFi
+    // by editing settings.toml themselves, since the auto-credentials
+    // step doesn't run in manual mode.
+    async stepManualSuccess() {
+        this.showDialog(this.dialogs.manualSuccess);
     }
 
     async stepSelectBootDrive() {
@@ -793,7 +1118,100 @@ export class CPInstallButton extends InstallButton {
 
     ////////// HANDLERS //////////
 
+    // Handler for the "Continue Manually" button on fsapiUnavailable.
+    // The user has chosen to copy the UF2 themselves rather than
+    // switching browsers, so swap the drive-picker tail of the current
+    // flow for the manual variants. The welcome + fsapi-check steps
+    // stay in place at the current index so the Previous button still
+    // has something to go back to. We mutate currentFlow.steps in
+    // place so previousButton / nextButton step counts stay correct,
+    // then advance into the install. (Issue #24)
+    // Handler for the "Install .bin Instead" button on fsapiUnavailable.
+    // The user has chosen to skip the UF2 path entirely and just flash
+    // the .bin firmware over USB. This swaps out the current flow for
+    // binFullProgram, which doesn't touch the FileSystem API at all.
+    // Tradeoff: no UF2 bootloader gets installed, so future firmware
+    // updates have to come back through this installer. We surface
+    // that tradeoff in the dialog copy.
+    //
+    // We deliberately bypass binFullProgram.isEnabled() (which gates
+    // on !hasNativeUsb()) and start the flow directly: the menu still
+    // honors that gate, but the dialog is the user's informed-consent
+    // escape hatch where the gate is intentionally relaxed.
+    //
+    // We start at step 1 (stepSerialConnect) instead of step 0
+    // (stepWelcome) because the user already saw uf2FullProgram's
+    // welcome dialog moments ago and there's no point showing it
+    // again. (Issue #24)
+    async installBinInsteadHandler(e) {
+        const binFlow = this.flows.binFullProgram;
+        if (!binFlow || !this.binFileUrl) {
+            // Shouldn't happen because the button is hidden when no
+            // .bin URL is configured, but guard anyway.
+            this.errorMsg("The .bin install option isn't available for this board.");
+            return;
+        }
+        this.closeDialog();
+        // Inline runFlow() but start at step 1 (stepSerialConnect) to
+        // skip stepWelcome, which the user already saw via
+        // uf2FullProgram. Snapshot bin flow's step list defensively in
+        // case it ever grows mutating handlers like uf2FullProgram has.
+        // We also set _returnToUf2Welcome on the bin flow so that
+        // hitting Previous from stepSerialConnect lands the user back
+        // at uf2FullProgram's welcome dialog (where they started), not
+        // at binFullProgram's own welcome. The override is consumed
+        // by stepWelcome; if the user later starts the bin flow fresh
+        // from the menu, stepWelcome's restore logic clears the flag.
+        // (Issue #24)
+        this.currentFlow = binFlow;
+        if (!this.currentFlow._originalSteps) {
+            this.currentFlow._originalSteps = this.currentFlow.steps.slice();
+        } else {
+            this.currentFlow.steps = this.currentFlow._originalSteps.slice();
+        }
+        this.currentFlow._returnToUf2Welcome = true;
+        this.currentStep = 1;
+        await this.currentFlow.steps[this.currentStep].bind(this)();
+    }
+
+    async continueManuallyHandler(e) {
+        if (!this.currentFlow) {
+            // No flow is active, which shouldn't be possible from this
+            // dialog. Just close and bail.
+            this.closeDialog();
+            return;
+        }
+        // Drop everything after the current step (the FSAPI-check step)
+        // and graft on the manual sub-flow. The serial-connect /
+        // confirm / erase / bootloader steps stay in place: we still
+        // want to flash the UF2 bootloader for the user, we just can't
+        // copy the UF2 onto the BOOT drive for them.
+        const manualTail = [
+            this.stepSerialConnect,
+            this.stepConfirm,
+            this.stepEraseAll,
+            this.stepBootloader,
+            this.stepManualBootCopy,
+            this.stepManualCircuitPyWait,
+            this.stepManualSuccess,
+        ];
+        this.currentFlow.steps = this.currentFlow.steps
+            .slice(0, this.currentStep + 1)
+            .concat(manualTail);
+        await this.nextStep();
+    }
+
     async bootDriveSelectHandler(e) {
+        // Belt-and-suspenders: stepWelcome should have already shunted
+        // Firefox users into the manual flow before they get here, and
+        // uf2Only / credentialsOnlyDrive are hidden from the menu when
+        // FSAPI is missing. If something still routes a no-FSAPI browser
+        // into this handler, fail loudly with a user-facing message
+        // instead of silently swallowing the TypeError as "user cancelled".
+        if (!this.hasFileSystemAccess) {
+            this.errorMsg("Your browser doesn't support the FileSystem API, so this installer can't pick the bootloader drive automatically. Try Chrome, Edge, or Opera (version 89 or newer).");
+            return;
+        }
         const bootloaderVolume = await this.getBootDriveName();
         let dirHandle;
 
@@ -819,6 +1237,12 @@ export class CPInstallButton extends InstallButton {
     }
 
     async circuitpyDriveSelectHandler(e) {
+        // Same belt-and-suspenders guard as bootDriveSelectHandler.
+        // (Issue #24)
+        if (!this.hasFileSystemAccess) {
+            this.errorMsg("Your browser doesn't support the FileSystem API, so this installer can't pick the CIRCUITPY drive automatically. Try Chrome, Edge, or Opera (version 89 or newer).");
+            return;
+        }
         let dirHandle;
 
         // This will need to show a dialog selector
@@ -861,10 +1285,13 @@ export class CPInstallButton extends InstallButton {
                 // The user picked an obviously-wrong port (e.g. TinyUF2 CDC
                 // or a running CircuitPython port). Surface the specific
                 // guidance from espConnect verbatim so they know what to
-                // do. This is a user-recoverable hiccup, not an install
-                // failure, so use warnMsg (yellow console warning) rather
-                // than errorMsg.
+                // do, and offer a Continue button that drops them back
+                // on the serial-connect dialog so they can pick the
+                // right port without re-running the whole installer.
+                // Also log to the console so it's visible in the
+                // log output. (Issues #20, #24)
                 this.warnMsg(err.message);
+                this.showDialog(this.dialogs.notRomBootloader, { message: err.message });
             } else {
                 this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab. If installing the bootloader, make sure you are in ROM bootloader mode.");
             }

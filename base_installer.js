@@ -374,12 +374,17 @@ export class InstallButton extends HTMLButtonElement {
 
     errorMsg(text) {
         text = this.stripHtml(text);
-        // Use console.warn (not console.error) so the browser console
-        // doesn't flag user-facing flow problems as scary red errors.
-        // The user already sees the message in an error dialog; the
-        // console line is just for developers tailing along.
-        console.warn(text);
+        console.error(text);
         this.showError(text);
+    }
+
+    // Like errorMsg but for user-recoverable hiccups (e.g. picked the
+    // wrong serial port). Surfaces a warning dialog and logs at warn
+    // level so the dev console doesn't flag it as a scary red error.
+    warnMsg(text) {
+        text = this.stripHtml(text);
+        console.warn(text);
+        this.showWarning(text);
     }
 
     logMsg(text, showTrace = false) {
@@ -482,6 +487,13 @@ export class InstallButton extends HTMLButtonElement {
     async showError(message) {
         // Display Menu
         this.showDialog(this.dialogs.error, {message: message});
+    }
+
+    async showWarning(message) {
+        // Display the warning dialog. Falls back to the error dialog
+        // if a subclass hasn't defined a separate warning dialog yet.
+        const dialog = this.dialogs.warning || this.dialogs.error;
+        this.showDialog(dialog, {message: message});
     }
 
     async setBaudRateIfChipSupports(baud) {

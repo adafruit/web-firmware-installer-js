@@ -483,6 +483,20 @@ export class CPInstallButton extends InstallButton {
             },
             buttons: [this.closeButton],
         },
+        warning: {
+            closeable: true,
+            // Same paragraph-splitting behavior as the error dialog.
+            // Visually identical for now but kept separate so future
+            // styling (icon, color) can differentiate user-recoverable
+            // hiccups from real install errors.
+            template: (data) => {
+                const paragraphs = String(data.message || "").split(/\n{2,}/);
+                return html`
+                    ${map(paragraphs, (p) => html`<p style="white-space: pre-line;">${p}</p>`)}
+                `;
+            },
+            buttons: [this.closeButton],
+        },
     }
 
     getBoardName(boardId) {
@@ -846,8 +860,11 @@ export class CPInstallButton extends InstallButton {
             if (err instanceof NotRomBootloaderError) {
                 // The user picked an obviously-wrong port (e.g. TinyUF2 CDC
                 // or a running CircuitPython port). Surface the specific
-                // guidance from espConnect verbatim so they know what to do.
-                this.errorMsg(err.message);
+                // guidance from espConnect verbatim so they know what to
+                // do. This is a user-recoverable hiccup, not an install
+                // failure, so use warnMsg (yellow console warning) rather
+                // than errorMsg.
+                this.warnMsg(err.message);
             } else {
                 this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab. If installing the bootloader, make sure you are in ROM bootloader mode.");
             }

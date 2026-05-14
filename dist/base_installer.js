@@ -87,6 +87,13 @@ export class InstallButton extends HTMLButtonElement {
     }
 
     init() {
+        // Capability check for the File System Access API
+        // (window.showDirectoryPicker). Firefox doesn't ship this API at
+        // all, so any flow that depends on picking the BOOT / CIRCUITPY
+        // drives needs to gate itself on this. Computed once at init
+        // time and read as a plain boolean throughout. (Issue #24)
+        this.hasFileSystemAccess = typeof window !== "undefined"
+            && typeof window.showDirectoryPicker === "function";
         this.preloadDialogs();
     }
 
@@ -545,9 +552,9 @@ export class InstallButton extends HTMLButtonElement {
                 throw new NotRomBootloaderError(
                     "Oops, it looks like the board is not in ROM Bootloader mode.\n\n" +
                     "To get there: hold the BOOT button, tap RESET, then " +
-                    "release BOOT. Click Connect again and pick the port " +
-                    "named something like \"USB JTAG/serial debug unit\", or " +
-                    "a USB-serial bridge (CP210x, CH340, FTDI)."
+                    "release BOOT. Then click OK to try again and pick " +
+                    "the port named something like \"USB JTAG/serial debug unit\", " +
+                    "or a USB-serial bridge (CP210x, CH340, FTDI)."
                 );
             }
 

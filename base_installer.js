@@ -9,6 +9,63 @@ import {asyncAppend} from 'https://cdn.jsdelivr.net/npm/lit-html/directives/asyn
 import { ESPLoader, Transport, HardReset } from "./bundle.js"; // Latest esptool-js as of 2026-03-17
 export const ESP_ROM_BAUD = 115200;
 
+// USB devices whose ports are never the ESP32 ROM bootloader.
+// If the user picks one of these, esptool-js will write sync bytes into
+// something that doesn't speak the ROM SLIP protocol (e.g. TinyUF2's CDC
+// interface or a running CircuitPython / Arduino sketch) and the read
+// loop will time out with a misleading "Possible serial noise or
+// corruption" error. Detecting it up front lets us tell the user exactly
+// what's wrong and how to get into ROM bootloader mode.
+//
+// Rule shape per vendor:
+//   "any"            -> every PID under this VID is application firmware
+//                       (vendor doesn't ship any USB device that exposes
+//                       an ESP32 ROM bootloader interface).
+//   Set<number>      -> only these specific PIDs are application firmware;
+//                       other PIDs under this VID may legitimately be the
+//                       ROM bootloader and must be allowed through.
+//
+// The list is intentionally conservative: we only add a vendor / PID once
+// we have evidence that real users hit the "wrong port" failure with it.
+// Anything not on this list proceeds normally, so an unknown but
+// legitimate ROM port is never blocked.
+export const NON_ROM_USB_DEVICES = new Map([
+    // Adafruit Industries. Every USB device Adafruit ships under 0x239A is
+    // application firmware (CircuitPython, TinyUF2 CDC, MakeCode, Arduino
+    // sketches with the Adafruit USB stack, Trinket, etc.). None of them
+    // are an ESP32 ROM bootloader interface.
+    [0x239A, "any"],
+    // Espressif Systems would go here once we have PID-specific evidence,
+    // because 0x303A is shared between the ROM bootloader (PID 0x1001 for
+    // native USB-Serial-JTAG, 0x0002 for the S2 USB-CDC ROM) and many
+    // vendor-allocated application-firmware PIDs. Listing 0x303A as "any"
+    // would lock out legitimate ROM ports, so it stays off the list until
+    // we add an explicit Set<PID> of known app-firmware values.
+]);
+
+// Returns true if the device described by getInfo()-style { usbVendorId,
+// usbProductId } is on the deny list above. Exported for tests.
+export function isKnownNonRomDevice(info) {
+    if (!info || typeof info.usbVendorId !== "number") {
+        return false;
+    }
+    const rule = NON_ROM_USB_DEVICES.get(info.usbVendorId);
+    if (rule === "any") {
+        return true;
+    }
+    if (rule instanceof Set) {
+        return rule.has(info.usbProductId);
+    }
+    return false;
+}
+
+export class NotRomBootloaderError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "NotRomBootloaderError";
+    }
+}
+
 export class InstallButton extends HTMLButtonElement {
     static isSupported = 'serial' in navigator;
     static isAllowed = window.isSecureContext;
@@ -321,6 +378,15 @@ export class InstallButton extends HTMLButtonElement {
         this.showError(text);
     }
 
+    // Like errorMsg but for user-recoverable hiccups (e.g. picked the
+    // wrong serial port). Surfaces a warning dialog and logs at warn
+    // level so the dev console doesn't flag it as a scary red error.
+    warnMsg(text) {
+        text = this.stripHtml(text);
+        console.warn(text);
+        this.showWarning(text);
+    }
+
     logMsg(text, showTrace = false) {
         // TODO: Eventually add to an internal log that the user can bring up
         console.info(this.stripHtml(text));
@@ -423,6 +489,13 @@ export class InstallButton extends HTMLButtonElement {
         this.showDialog(this.dialogs.error, {message: message});
     }
 
+    async showWarning(message) {
+        // Display the warning dialog. Falls back to the error dialog
+        // if a subclass hasn't defined a separate warning dialog yet.
+        const dialog = this.dialogs.warning || this.dialogs.error;
+        this.showDialog(dialog, {message: message});
+    }
+
     async setBaudRateIfChipSupports(baud) {
         if (baud == this.baudRate) { return } // already the current setting
 
@@ -450,6 +523,34 @@ export class InstallButton extends HTMLButtonElement {
 
         if (this.device === null) {
             this.device = await navigator.serial.requestPort({});
+
+            // Sanity-check the picked port BEFORE we hand it to esptool-js.
+            // If it's a well-known non-ROM-bootloader device (e.g. TinyUF2
+            // CDC or a running CircuitPython / Arduino firmware) the ESP
+            // ROM sync will just time out with a cryptic "Possible serial
+            // noise or corruption" error. Bail out now with a friendlier
+            // message that tells the user what to do.
+            let pickedInfo = null;
+            try {
+                pickedInfo = this.device.getInfo();
+            } catch (err) {
+                // getInfo() should never throw on a port returned by
+                // requestPort(), but if it does we just continue and let
+                // esptool-js handle whatever comes next.
+            }
+            if (isKnownNonRomDevice(pickedInfo)) {
+                // Clear our refs so the next Connect click re-prompts the picker.
+                this.device = null;
+                this.transport = null;
+                throw new NotRomBootloaderError(
+                    "Oops, it looks like the board is not in ROM Bootloader mode.\n\n" +
+                    "To get there: hold the BOOT button, tap RESET, then " +
+                    "release BOOT. Click Connect again and pick the port " +
+                    "named something like \"USB JTAG/serial debug unit\", or " +
+                    "a USB-serial bridge (CP210x, CH340, FTDI)."
+                );
+            }
+
             this.transport = new Transport(this.device, true);
         }
 

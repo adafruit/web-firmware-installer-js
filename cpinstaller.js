@@ -8,7 +8,7 @@ import { map } from 'https://cdn.jsdelivr.net/npm/lit-html/directives/map/+esm';
 import * as toml from "https://cdn.jsdelivr.net/npm/iarna-toml-esm@3.0.5/+esm"
 import * as zip from "https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.6.65/+esm";
 import { REPL } from 'https://cdn.jsdelivr.net/gh/adafruit/circuitpython-repl-js@3.2.1/repl.js';
-import { InstallButton, ESP_ROM_BAUD } from "./base_installer.js";
+import { InstallButton, ESP_ROM_BAUD, NotRomBootloaderError } from "./base_installer.js";
 
 // TODO: Combine multiple steps together. For now it was easier to make them separate,
 // but for ease of configuration, it would be work better to combine them together.
@@ -469,9 +469,32 @@ export class CPInstallButton extends InstallButton {
         },
         error: {
             closeable: true,
-            template: (data) => html`
-                <p>Installation Error: ${data.message}</p>
-            `,
+            template: (data) => {
+                // Split the message on blank lines so callers can pass
+                // multi-paragraph error text (e.g. an explanation followed
+                // by remediation instructions) and have it render as
+                // separate paragraphs in the dialog rather than one wall
+                // of text. Single newlines are preserved as line breaks
+                // within a paragraph via CSS white-space: pre-line.
+                const paragraphs = String(data.message || "").split(/\n{2,}/);
+                return html`
+                    ${map(paragraphs, (p) => html`<p style="white-space: pre-line;">${p}</p>`)}
+                `;
+            },
+            buttons: [this.closeButton],
+        },
+        warning: {
+            closeable: true,
+            // Same paragraph-splitting behavior as the error dialog.
+            // Visually identical for now but kept separate so future
+            // styling (icon, color) can differentiate user-recoverable
+            // hiccups from real install errors.
+            template: (data) => {
+                const paragraphs = String(data.message || "").split(/\n{2,}/);
+                return html`
+                    ${map(paragraphs, (p) => html`<p style="white-space: pre-line;">${p}</p>`)}
+                `;
+            },
             buttons: [this.closeButton],
         },
     }
@@ -834,7 +857,17 @@ export class CPInstallButton extends InstallButton {
         } catch (err) {
             // It's possible the dialog was also canceled here
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab. If installing the bootloader, make sure you are in ROM bootloader mode.");
+            if (err instanceof NotRomBootloaderError) {
+                // The user picked an obviously-wrong port (e.g. TinyUF2 CDC
+                // or a running CircuitPython port). Surface the specific
+                // guidance from espConnect verbatim so they know what to
+                // do. This is a user-recoverable hiccup, not an install
+                // failure, so use warnMsg (yellow console warning) rather
+                // than errorMsg.
+                this.warnMsg(err.message);
+            } else {
+                this.errorMsg("Unable to open Serial connection to board. Make sure the port is not already in use by another application or in another browser tab. If installing the bootloader, make sure you are in ROM bootloader mode.");
+            }
             return;
         }
 

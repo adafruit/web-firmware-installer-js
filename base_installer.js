@@ -543,7 +543,7 @@ export class InstallButton extends HTMLButtonElement {
                 this.device = null;
                 this.transport = null;
                 throw new NotRomBootloaderError(
-                    "It looks like the board is not in ROM Bootloader mode.\n\n" +
+                    "Oops, it looks like the board is not in ROM Bootloader mode.\n\n" +
                     "To get there: hold the BOOT button, tap RESET, then " +
                     "release BOOT. Click Connect again and pick the port " +
                     "named something like \"USB JTAG/serial debug unit\", or " +

@@ -888,7 +888,7 @@ export class CPInstallButton extends InstallButton {
             }
 
             // Can't use it so disconnect now
-            this.errorMsg("This looks like the wrong firmware for your board.")
+            this.errorMsg("Oops, this looks like the wrong firmware for your board.")
             await this.espDisconnect();
 
         } catch (err) {
@@ -897,7 +897,7 @@ export class CPInstallButton extends InstallButton {
             }
             // Disconnection before complete
             this.updateEspConnected(this.connectionStates.DISCONNECTED);
-            this.errorMsg("We lost the connection to your board before the install finished. Check the USB cable and click Connect again. If the browser gets stuck, refresh the page and try once more.")
+            this.errorMsg("Oops, we lost the connection to your board before the install finished. Check the USB cable and click Connect again. If the browser gets stuck, refresh the page and try once more.")
         }
     }
 

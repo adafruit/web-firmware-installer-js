@@ -888,7 +888,7 @@ export class CPInstallButton extends InstallButton {
             }
 
             // Can't use it so disconnect now
-            this.errorMsg("Oops, this looks like the wrong firmware for your board.")
+            this.errorMsg("Oops, this is the wrong firmware for your board.")
             await this.espDisconnect();
 
         } catch (err) {
